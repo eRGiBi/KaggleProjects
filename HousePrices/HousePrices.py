@@ -197,7 +197,30 @@ if __name__ == '__main__':
     print(model.summary())
     print()
 
-    tfdf.model_plotter.plot_model(model, tree_idx=0, max_depth=None)
+    print("TensorFlow Decision Forests Results: -------------------")
+    train_predictions = model.predict(train_ds)
+    for i in range(10):
+        print(f"Train Prediction: {train_predictions[i]}, SalePrice: {train_ds_pd[label].iloc[i]}")
+    print()
+    train_r2 = r2_score(train_ds_pd[label], train_predictions)
+    print(f'Train R-squared: {train_r2 * 100:.2f}%')
+    RMSE = mean_squared_error(train_ds_pd[label], train_predictions, squared=False)
+    print(f'Train RMSE: {RMSE:.2f}')
+    print()
+    print()
+
+    valid_predictions = model.predict(valid_ds)
+    for i in range(10):
+        print(f"Validation Prediction: {valid_predictions[i]}, SalePrice: {valid_ds_pd[label].iloc[i]}")
+    print()
+    valid_r2 = r2_score(valid_ds_pd[label], valid_predictions)
+    print(f'Validation R-squared: {valid_r2 * 100:.2f}%')
+    RMSE = mean_squared_error(valid_ds_pd[label], valid_predictions, squared=False)
+    print(f'Validation RMSE: {RMSE:.2f}')
+    print()
+
+
+    # tfdf.model_plotter.plot_model(model, tree_idx=0, max_depth=None)
     plt.show()
 
     logs = model.make_inspector().training_logs()
@@ -249,14 +272,37 @@ if __name__ == '__main__':
     plt.show()
 
 
+
+    # Check the model input keys and semantics #################
+    sample_inputs = {
+        'LotFrontage': tf.constant([80.0], dtype=tf.float32),
+        'LotArea': tf.constant([9600], dtype=tf.int64),
+    }
+
+    # Check the expected inputs of the model
+    model_input_keys = model._normalized_column_keys
+
+    # Check the semantics defined in the model
+    model_semantics = model._semantics
+
+    print("Model Input Keys: ", model_input_keys)
+    print("Model Semantics: ", model_semantics)
+
+    # Ensure all semantics are in the inputs
+    for key in model_semantics.keys():
+        if key not in sample_inputs:
+            print(f"Missing input for key: {key}")
+
+    # Ensure all inputs are in the semantics
+    for key in sample_inputs.keys():
+        if key not in model_semantics:
+            print(f"Extra input provided for key: {key}")
+
     # Predict on the test data ###################################
 
-    print(test['LotShape'], test['LotShape'].dtype)
-
     test_ds = tfdf.keras.pd_dataframe_to_tf_dataset(
-        test,
+        test_encoded,
         task=tfdf.keras.Task.REGRESSION)
-
 
 
     preds = model.predict(test_ds)
