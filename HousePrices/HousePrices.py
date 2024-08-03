@@ -1,10 +1,13 @@
+
 import time
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 # import category_encoders as ce
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder
+from sklearn.impute import SimpleImputer
 from sklearn.ensemble import RandomForestRegressor
 
 import tensorflow as tf
@@ -12,6 +15,8 @@ import tensorflow_decision_forests as tfdf
 
 import seaborn as sns
 import matplotlib.pyplot as plt
+
+from ExperimentLogger import ExperimentLogger
 
 SEED = 123456
 
@@ -64,12 +69,15 @@ if __name__ == '__main__':
 
     def preprocess_data(data):
 
+        missing_val_count_by_column = (data.isnull().sum())
+        print(missing_val_count_by_column[missing_val_count_by_column > 0])
+
         data['LotShape'] = str(data['LotShape'])
 
-        for col in data.columns:
-            if data[col].dtype != 'int64' and data[col].dtype != 'int32' and data[col].dtype != 'float64':
-                print(col, data[col].dtype)
-                print(data[col].unique())
+        # for col in data.columns:
+        #     if data[col].dtype != 'int64' and data[col].dtype != 'int32' and data[col].dtype != 'float64':
+                # print(col, data[col].dtype)
+                # print(data[col].unique())
 
         # for col in df_encoded.columns:
         #     if df_encoded[col].dtype == 'int64' or df_encoded[col].dtype == 'int32':
@@ -99,50 +107,71 @@ if __name__ == '__main__':
     if not tf.executing_eagerly():
         tf.compat.v1.reset_default_graph()
 
+    now = datetime.now().strftime("%m.%d.%Y_%H.%M.%S")
+    exp_name = "experiment_" + str(now)
+    exp_logger = ExperimentLogger('submissions/' + exp_name + '.csv')
+
+    # Load the data #############################################
 
     data = pd.read_csv('data/train.csv')
     data = data.drop('Id', axis=1)
 
     test = pd.read_csv('data/test.csv')
     ids = test.pop('Id')
+    test.insert(loc=0, column='SalePrice', value=data['SalePrice'], allow_duplicates=True)
 
     # Data exploration ###########################################
 
-    print(data['SalePrice'].describe())
     plt.figure(figsize=(9, 8))
     sns.displot(data['SalePrice'], color='g', bins=100);
     plt.show()
 
     print("Original data: -------------------")
-    df_num = data.select_dtypes(include=['float64', 'int64'])
-    df_num.head()
-
+    # df_num = data.select_dtypes(include=['float64', 'int64'])
+    # print(df_num.head())
+    # df_num.hist(figsize=(16, 20), bins=50, xlabelsize=8, ylabelsize=8);
+    # plt.show()
+    print("Train Data")
     print(data.head())
-
-    df_num = data.select_dtypes(include=['float64', 'int64'])
-    df_num.head()
-
-    df_num.hist(figsize=(16, 20), bins=50, xlabelsize=8, ylabelsize=8);
-
+    print("Test Data")
+    print(test.head())
+    print(data.shape, test.shape)
 
     # Data preprocessing ###########################################
 
+    data.dropna(axis=0, subset=['SalePrice'], inplace=True)
+
     data = preprocess_data(data)
     test = preprocess_data(test)
-
-    # Encode data
 
     print("Encoded data: -------------------")
 
     train_encoded = encode_data(data)
     test_encoded = encode_data(test)
 
-    data = train_encoded
-    test = test_encoded
-
     print(train_encoded.head())
     print(train_encoded.info())
     print()
+    print(test_encoded.head())
+    print(test_encoded.info())
+    print()
+    print(data.shape, test.shape)
+
+    # Impute missing values
+    print("Imputed data: -------------------")
+    my_imputer = SimpleImputer()
+    data = my_imputer.fit_transform(data)
+    data = my_imputer.fit_transform(test)
+
+    print(data.shape, test.shape)
+
+    # Encode data
+
+
+
+    for train_col, test_col in zip(data.columns, test.columns):
+        if train_col != test_col:
+            print(f"Train column: {train_col}, Test column: {test_col}")
 
     def split_dataset(dataset, test_ratio=0.30):
         test_indices = np.random.rand(len(dataset)) < test_ratio
@@ -187,7 +216,7 @@ if __name__ == '__main__':
     #                                      winner_take_all=True,
     #                                      )
 
-    model = tfdf.keras.RandomForestModel(task=tfdf.keras.Task.REGRESSION)
+    model = tfdf.keras.RandomForestModel(task=tfdf.keras.Task.REGRESSION, verbose=2)
     model.compile(metrics=["mse"])
 
     model.fit(x=train_ds)
@@ -206,7 +235,6 @@ if __name__ == '__main__':
     print(f'Train R-squared: {train_r2 * 100:.2f}%')
     RMSE = mean_squared_error(train_ds_pd[label], train_predictions, squared=False)
     print(f'Train RMSE: {RMSE:.2f}')
-    print()
     print()
 
     valid_predictions = model.predict(valid_ds)
@@ -272,6 +300,11 @@ if __name__ == '__main__':
     plt.show()
 
 
+    exp_logger.save({"Id": now, "Model": "TensorFlow Decision Forests",
+                     "Train_R2": train_r2, "Validation_R2": valid_r2, "RMSE": RMSE,
+                     "Hyperparameters": model.predefined_hyperparameters()})
+
+
 
     # Check the model input keys and semantics #################
     sample_inputs = {
@@ -279,31 +312,12 @@ if __name__ == '__main__':
         'LotArea': tf.constant([9600], dtype=tf.int64),
     }
 
-    # Check the expected inputs of the model
-    model_input_keys = model._normalized_column_keys
-
-    # Check the semantics defined in the model
-    model_semantics = model._semantics
-
-    print("Model Input Keys: ", model_input_keys)
-    print("Model Semantics: ", model_semantics)
-
-    # Ensure all semantics are in the inputs
-    for key in model_semantics.keys():
-        if key not in sample_inputs:
-            print(f"Missing input for key: {key}")
-
-    # Ensure all inputs are in the semantics
-    for key in sample_inputs.keys():
-        if key not in model_semantics:
-            print(f"Extra input provided for key: {key}")
 
     # Predict on the test data ###################################
 
     test_ds = tfdf.keras.pd_dataframe_to_tf_dataset(
         test_encoded,
         task=tfdf.keras.Task.REGRESSION)
-
 
     preds = model.predict(test_ds)
     output = pd.DataFrame({'Id': ids,
@@ -315,7 +329,7 @@ if __name__ == '__main__':
 
     sample_submission_df = pd.read_csv('./data/sample_submission.csv')
     sample_submission_df['SalePrice'] = model.predict(test_ds)
-    sample_submission_df.to_csv('./results/sample_submission' + str(time.time() / 60) + '.csv', index=False)
+    sample_submission_df.to_csv('./submissions/sample_submission_' + str(now) + '.csv', index=False)
     print(sample_submission_df.head())
 
     
