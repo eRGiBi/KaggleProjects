@@ -13,6 +13,8 @@ from sklearn.ensemble import RandomForestRegressor
 import tensorflow as tf
 import tensorflow_decision_forests as tfdf
 
+import ydf
+
 import seaborn as sns
 import matplotlib.pyplot as plt
 
@@ -21,6 +23,22 @@ from ExperimentLogger import ExperimentLogger
 SEED = 123456
 np.random.seed(SEED)
 tf.random.set_seed(SEED)
+
+def make_submission(model, test_data):
+    test_ds = tfdf.keras.pd_dataframe_to_tf_dataset(
+        test_data,
+        task=tfdf.keras.Task.REGRESSION)
+
+    preds = model.predict(test_ds)
+    output = pd.DataFrame({'Id': ids,
+                           'SalePrice': preds.squeeze()})
+
+    print(output.head())
+
+    sample_submission_df = pd.read_csv('./data/sample_submission.csv')
+    sample_submission_df['SalePrice'] = model.predict(test_ds)
+    sample_submission_df.to_csv('./submissions/submission_' + exp_name + '.csv', index=False)
+    print(sample_submission_df.head())
 
 
 def encode_data(data):
@@ -49,6 +67,7 @@ def encode_data(data):
                     'Exterior1st', 'Exterior2nd', 'MasVnrType', 'Foundation', 'Heating',
                     'CentralAir', 'Electrical', 'GarageType', 'MiscFeature', 'SaleType',
                     'SaleCondition']
+
     encoder = OneHotEncoder(sparse_output=False)
 
     one_hot_enc = encoder.fit_transform(data[one_hot_cols])
@@ -99,34 +118,25 @@ def preprocess_data(data):
 
 
 def explore_data(data, plot=False):
-    print(data.head())
-    print(data.info())
-    print(data.describe())
-    print(data.shape)
-
     if plot:
-        plt.figure(figsize=(9, 8))
-        sns.displot(data['SalePrice'], color='g', bins=100);
+        # plt.figure(figsize=(9, 8))
+        # sns.displot(data['SalePrice'], color='g', bins=100);
+        # plt.show()
+
+        df_num = data.select_dtypes(include=['float64', 'int64'])
+        print(df_num.head())
+        df_num.hist(figsize=(8, 10), bins=50, xlabelsize=4, ylabelsize=4);
         plt.show()
 
-    print("Original data: -------------------")
-    # df_num = data.select_dtypes(include=['float64', 'int64'])
-    # print(df_num.head())
-    # df_num.hist(figsize=(16, 20), bins=50, xlabelsize=8, ylabelsize=8);
-    # plt.show()
-    print("Train Data")
-    print(data.head())
-    print("Test Data")
-    print(test.head())
-    print(data.shape, test.shape)
+    print("Data Shape, Sample, info: -------------------")
 
-    print(train_encoded.head())
-    print(train_encoded.info())
+    print(data.shape)
+    print(data.head())
+    print("Data info:")
+    print(data.info())
+    print("Data description:")
+    print(data.describe())
     print()
-    print(test_encoded.head())
-    print(test_encoded.info())
-    print()
-    print(data.shape, test.shape)
 
 
 if __name__ == '__main__':
@@ -156,12 +166,12 @@ if __name__ == '__main__':
 
     test = pd.read_csv('data/test.csv')
     ids = test.pop('Id')
-    test.insert(loc=0, column='SalePrice', value=data['SalePrice'], allow_duplicates=True)
+    # test.insert(loc=0, column='SalePrice', value=data['SalePrice'], allow_duplicates=True)
 
     # Data exploration ###########################################
 
     # explore_data(data)
-    explore_data(test, plot=True)
+    explore_data(test, plot=False)
 
     # Data preprocessing ###########################################
     print("Encoded data: -------------------")
@@ -175,25 +185,33 @@ if __name__ == '__main__':
     train_encoded = encode_data(data)
     test_encoded = encode_data(test)
 
+    explore_data(train_encoded, plot=False)
+
     # Impute missing values
     print("Imputed data: -------------------")
 
     my_imputer = SimpleImputer()
-    data = my_imputer.fit_transform(data)
-    data = my_imputer.fit_transform(test)
+    data = my_imputer.fit_transform(train_encoded)
+    test = my_imputer.fit_transform(test_encoded)
+
+    data = pd.DataFrame(data, columns=train_encoded.columns)
+    test = pd.DataFrame(test, columns=test_encoded.columns)
+
+    explore_data(data, plot=False)
+
+    # Check if the columns match
+    # for train_col, test_col in zip(data.columns, test.columns):
+    #     if train_col != test_col:
+    #         print(f"Train column: {train_col}, Test column: {test_col}")
+
+    # for i in range(len(data.columns) - 1):
+    #     if data.columns[i] != test.columns[i + 1]:
+    #         print(f"Train column: {data.columns[i]}, Test column: {test.columns[i]}")
 
 
-    explore_data(test, plot=False)
+    # Split the data to train and validation #############################################
 
-
-    for train_col, test_col in zip(data.columns, test.columns):
-        if train_col != test_col:
-            print(f"Train column: {train_col}, Test column: {test_col}")
-
-
-    # Split the data #############################################
-
-    def split_dataset(dataset, test_ratio=0.30):
+    def split_dataset(dataset, test_ratio=0.10):
         test_indices = np.random.rand(len(dataset)) < test_ratio
         return dataset[~test_indices], dataset[test_indices]
 
@@ -203,10 +221,10 @@ if __name__ == '__main__':
 
 
     # Visualize the data #########################################
-    df_numericals = data.select_dtypes(include=['float64', 'int64', 'int32', 'float32'])
-
-    df_numericals.hist(figsize=(16, 20), bins=50, xlabelsize=8, ylabelsize=8)
-    plt.show()
+    # df_numericals = data.select_dtypes(include=['float64', 'int64', 'int32', 'float32'])
+    #
+    # df_numericals.hist(figsize=(16, 20), bins=50, xlabelsize=8, ylabelsize=8)
+    # plt.show()
 
 
     # Random Forest regression with TensorFlow Decision Forests
@@ -223,7 +241,7 @@ if __name__ == '__main__':
                                                            max_num_classes=700)
         tuner = tfdf.tuner.RandomSearch(num_trials=20, trial_num_threads=3)
 
-        Hyperparameters to optimize.
+        # Hyperparameters to optimize.
         tuner.choice("max_depth", [4, 5, 7, 16, 32])
         tuner.choice("num_trees", [50, 100, 200, 500])
 
@@ -341,22 +359,11 @@ if __name__ == '__main__':
 
         # Predict on the test data ###################################
 
-        test_ds = tfdf.keras.pd_dataframe_to_tf_dataset(
-            test_encoded,
-            task=tfdf.keras.Task.REGRESSION)
 
-        preds = model.predict(test_ds)
-        output = pd.DataFrame({'Id': ids,
-                               'SalePrice': preds.squeeze()})
-
-        print(output.head())
 
         # model.save("./saved_models/")
 
-        sample_submission_df = pd.read_csv('./data/sample_submission.csv')
-        sample_submission_df['SalePrice'] = model.predict(test_ds)
-        sample_submission_df.to_csv('./submissions/sample_submission_' + str(now) + '.csv', index=False)
-        print(sample_submission_df.head())
+
 
 
     if use_sklrean_df:
@@ -393,9 +400,47 @@ if __name__ == '__main__':
 
     if use_yggdrasil:
 
+        learner = ydf.RandomForestLearner(label="SalePrice",
+                                          task=ydf.Task.REGRESSION,
+                                          include_all_columns=True,
+                                          features=[
+                                              # ydf.Feature("PoolArea", monotonic=+1),
+                                          ],
+                                          )
 
-        
+        model = learner.train(ds=train_ds_pd, verbose=2)
 
+        print(model.describe())
+        # print(model)
+
+        evaluation = model.evaluate(valid_ds_pd)
+
+        # Query individual evaluation metrics
+        print(f"test accuracy: {evaluation.accuracy}")
+
+        # Show the full evaluation report
+        print("Full evaluation report:")
+        print(evaluation)
+
+        print("Analytics Results: -------------------")
+        print()
+        analysis = model.analyze(valid_ds_pd, sampling=0.1)
+        print(analysis)
+        analysis.to_file("results/analysis.html")
+
+        print("Benchmark Results: -------------------")
+        # print(model.benchmark(valid_ds_pd))
+        # print(model.to_cpp())
+
+        # model.save("/my_model")
+
+        print("Yggdrasil Submission: -------------------")
+        print(data.shape, test.shape)
+        make_submission(model, test)
+
+        # Hyperparameter tuning
+
+        tuner = ydf.RandomForestTuner(task=ydf.Task.REGRESSION, num_trials=10)
 
         logs = model.hyperparameter_optimizer_logs()
         top_score = max(t.score for t in logs.trials)
