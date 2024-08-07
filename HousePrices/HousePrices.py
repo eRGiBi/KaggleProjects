@@ -20,11 +20,33 @@ import matplotlib.pyplot as plt
 
 from ExperimentLogger import ExperimentLogger
 
-SEED = 123456
-np.random.seed(SEED)
-tf.random.set_seed(SEED)
+SEED = 476
 
-def make_submission(model, test_data):
+def calculate_metrics(model, train_ds_pd, valid_ds_pd, label='SalePrice'):
+
+    train_predictions = model.predict(train_ds_pd)
+    for i in range(10):
+        print(f"Train Prediction: {train_predictions[i]}, SalePrice: {train_ds_pd[label].iloc[i]}")
+    print()
+    train_r2 = r2_score(train_ds_pd[label], train_predictions)
+    print(f'Train R-squared: {train_r2 * 100:.2f}%')
+    RMSE = mean_squared_error(train_ds_pd[label], train_predictions, squared=False)
+    print(f'Train RMSE: {RMSE:.2f}')
+    print()
+
+    valid_predictions = model.predict(valid_ds_pd)
+    for i in range(10):
+        print(f"Validation Prediction: {valid_predictions[i]}, SalePrice: {valid_ds_pd[label].iloc[i]}")
+    print()
+    valid_r2 = r2_score(valid_ds_pd[label], valid_predictions)
+    print(f'Validation R-squared: {valid_r2 * 100:.2f}%')
+    RMSE = mean_squared_error(valid_ds_pd[label], valid_predictions, squared=False)
+    print(f'Validation RMSE: {RMSE:.2f}')
+    print()
+
+    return train_r2, valid_r2, RMSE
+
+def make_submission(model, test_data, tune=False):
     test_ds = tfdf.keras.pd_dataframe_to_tf_dataset(
         test_data,
         task=tfdf.keras.Task.REGRESSION)
@@ -139,311 +161,386 @@ def explore_data(data, plot=False):
     print()
 
 
-if __name__ == '__main__':
+class HousePricesRegression:
 
-    print("TensorFlow v" + tf.__version__)
-    print("TensorFlow Decision Forests v" + tfdf.__version__)
+    def __init__(self, algorithm, tune=False):
 
-    use_tfdf = False
-    use_sklrean_df = False
-    use_yggdrasil = True
+        self.algorithm = algorithm
+        self.tune = tune
 
-    # Check if TensorFlow can access the GPU
-    print("Num GPUs Available: ", len(tf.config.experimental.list_physical_devices('GPU')))
+        np.random.seed(SEED)
+        tf.random.set_seed(SEED)
 
-    # Ensure that TensorFlow is not initialized more than once
-    if not tf.executing_eagerly():
-        tf.compat.v1.reset_default_graph()
+        print("TensorFlow v" + tf.__version__)
+        print("TensorFlow Decision Forests v" + tfdf.__version__)
 
-    now = datetime.now().strftime("%m.%d.%Y_%H.%M.%S")
-    exp_name = "experiment_" + str(now)
-    exp_logger = ExperimentLogger('submissions/' + exp_name + '.csv')
+        # Check if TensorFlow can access the GPU
+        print("Num GPUs Available: ", len(tf.config.experimental.list_physical_devices('GPU')))
 
-    # Load the data #############################################
+        self.main()
 
-    data = pd.read_csv('data/train.csv')
-    data = data.drop('Id', axis=1)
+    def main(self):
 
-    test = pd.read_csv('data/test.csv')
-    ids = test.pop('Id')
-    # test.insert(loc=0, column='SalePrice', value=data['SalePrice'], allow_duplicates=True)
+        # Ensure that TensorFlow is not initialized more than once
+        if not tf.executing_eagerly():
+            tf.compat.v1.reset_default_graph()
 
-    # Data exploration ###########################################
+        now = datetime.now().strftime("%m.%d.%Y_%H.%M.%S")
+        exp_name = "experiment_" + str(now)
+        # exp_logger = ExperimentLogger('submissions/experiment_aggregate.csv')
 
-    # explore_data(data)
-    explore_data(test, plot=False)
+        # Load the data #############################################
 
-    # Data preprocessing ###########################################
-    print("Encoded data: -------------------")
+        data = pd.read_csv('data/train.csv')
+        data = data.drop('Id', axis=1)
 
-    data.dropna(axis=0, subset=['SalePrice'], inplace=True)
+        test = pd.read_csv('data/test.csv')
+        ids = test.pop('Id')
+        # test.insert(loc=0, column='SalePrice', value=data['SalePrice'], allow_duplicates=True)
 
-    data = preprocess_data(data)
-    test = preprocess_data(test)
+        # Data exploration ###########################################
 
-    # Encode data
-    train_encoded = encode_data(data)
-    test_encoded = encode_data(test)
+        # explore_data(data)
+        explore_data(test, plot=False)
 
-    explore_data(train_encoded, plot=False)
+        # Data preprocessing ###########################################
+        print("Encoded data: -------------------")
 
-    # Impute missing values
-    print("Imputed data: -------------------")
+        data.dropna(axis=0, subset=['SalePrice'], inplace=True)
 
-    my_imputer = SimpleImputer()
-    data = my_imputer.fit_transform(train_encoded)
-    test = my_imputer.fit_transform(test_encoded)
+        data = preprocess_data(data)
+        test = preprocess_data(test)
 
-    data = pd.DataFrame(data, columns=train_encoded.columns)
-    test = pd.DataFrame(test, columns=test_encoded.columns)
+        # Encode data
+        train_encoded = encode_data(data)
+        test_encoded = encode_data(test)
 
-    explore_data(data, plot=False)
+        explore_data(train_encoded, plot=False)
 
-    # Check if the columns match
-    # for train_col, test_col in zip(data.columns, test.columns):
-    #     if train_col != test_col:
-    #         print(f"Train column: {train_col}, Test column: {test_col}")
+        # Impute missing values
+        print("Imputed data: -------------------")
 
-    # for i in range(len(data.columns) - 1):
-    #     if data.columns[i] != test.columns[i + 1]:
-    #         print(f"Train column: {data.columns[i]}, Test column: {test.columns[i]}")
+        my_imputer = SimpleImputer()
+        data = my_imputer.fit_transform(train_encoded)
+        test = my_imputer.fit_transform(test_encoded)
 
+        data = pd.DataFrame(data, columns=train_encoded.columns)
+        test = pd.DataFrame(test, columns=test_encoded.columns)
 
-    # Split the data to train and validation #############################################
+        explore_data(data, plot=False)
 
-    def split_dataset(dataset, test_ratio=0.10):
-        test_indices = np.random.rand(len(dataset)) < test_ratio
-        return dataset[~test_indices], dataset[test_indices]
+        # Check if the columns match
+        # for train_col, test_col in zip(data.columns, test.columns):
+        #     if train_col != test_col:
+        #         print(f"Train column: {train_col}, Test column: {test_col}")
 
-    train_ds_pd, valid_ds_pd = split_dataset(data)
-    print("{} examples in training, {} examples in testing.".format(
-        len(train_ds_pd), len(valid_ds_pd)))
+        # for i in range(len(data.columns) - 1):
+        #     if data.columns[i] != test.columns[i + 1]:
+        #         print(f"Train column: {data.columns[i]}, Test column: {test.columns[i]}")
 
 
-    # Visualize the data #########################################
-    # df_numericals = data.select_dtypes(include=['float64', 'int64', 'int32', 'float32'])
-    #
-    # df_numericals.hist(figsize=(16, 20), bins=50, xlabelsize=8, ylabelsize=8)
-    # plt.show()
+        # Split the data to train and validation #############################################
 
+        def split_dataset(dataset, test_ratio=0.10):
+            test_indices = np.random.rand(len(dataset)) < test_ratio
+            return dataset[~test_indices], dataset[test_indices]
 
-    # Random Forest regression with TensorFlow Decision Forests
-    # with and without hyperparameter tuning
+        train_ds_pd, valid_ds_pd = split_dataset(data)
+        print("{} examples in training, {} examples in testing.".format(
+            len(train_ds_pd), len(valid_ds_pd)))
 
-    if use_tfdf:
 
-        label = 'SalePrice'
-        train_ds = tfdf.keras.pd_dataframe_to_tf_dataset(train_ds_pd, label=label,
-                                                         task=tfdf.keras.Task.REGRESSION,
-                                                           max_num_classes=700)
-        valid_ds = tfdf.keras.pd_dataframe_to_tf_dataset(valid_ds_pd, label=label,
-                                                         task=tfdf.keras.Task.REGRESSION,
-                                                           max_num_classes=700)
-        tuner = tfdf.tuner.RandomSearch(num_trials=20, trial_num_threads=3)
-
-        # Hyperparameters to optimize.
-        tuner.choice("max_depth", [4, 5, 7, 16, 32])
-        tuner.choice("num_trees", [50, 100, 200, 500])
-
-        print(tuner.train_config())
-
-        model = tfdf.keras.RandomForestModel(tuner=tuner, task=tfdf.keras.Task.REGRESSION,
-                                             bootstrap_training_dataset=True, bootstrap_size_ratio=1.0,
-                                             categorical_algorithm='CART', #RANDOM
-                                             growing_strategy='LOCAL', #BEST_FIRST_GLOBAL
-                                             honest=False,
-                                             min_examples=1,
-                                             missing_value_policy='GLOBAL_IMPUTATION',
-                                             num_candidate_attributes=0,
-                                             random_seed=SEED,
-                                             winner_take_all=True,
-                                             )
+        # Visualize the data #########################################
+        # df_numericals = data.select_dtypes(include=['float64', 'int64', 'int32', 'float32'])
+        #
+        # df_numericals.hist(figsize=(16, 20), bins=50, xlabelsize=8, ylabelsize=8)
+        # plt.show()
 
-        model = tfdf.keras.RandomForestModel(task=tfdf.keras.Task.REGRESSION, verbose=2)
-        model.compile(metrics=["mse"])
 
-        model.fit(x=train_ds)
+        # Random Forest regression with TensorFlow Decision Forests
+        # with and without hyperparameter tuning
 
-        model.evaluate(x=train_ds)
+        if self.algorithm == 'tfdf':
 
-        print(model.summary())
-        print()
+            label = 'SalePrice'
+            train_ds = tfdf.keras.pd_dataframe_to_tf_dataset(train_ds_pd, label=label,
+                                                             task=tfdf.keras.Task.REGRESSION,
+                                                               max_num_classes=700)
+            valid_ds = tfdf.keras.pd_dataframe_to_tf_dataset(valid_ds_pd, label=label,
+                                                             task=tfdf.keras.Task.REGRESSION,
+                                                               max_num_classes=700)
+            tuner = tfdf.tuner.RandomSearch(num_trials=20, trial_num_threads=3)
 
-        print("TensorFlow Decision Forests Results: -------------------")
-        train_predictions = model.predict(train_ds)
-        for i in range(10):
-            print(f"Train Prediction: {train_predictions[i]}, SalePrice: {train_ds_pd[label].iloc[i]}")
-        print()
-        train_r2 = r2_score(train_ds_pd[label], train_predictions)
-        print(f'Train R-squared: {train_r2 * 100:.2f}%')
-        RMSE = mean_squared_error(train_ds_pd[label], train_predictions, squared=False)
-        print(f'Train RMSE: {RMSE:.2f}')
-        print()
+            # Hyperparameters to optimize.
+            tuner.choice("max_depth", [4, 5, 7, 16, 32])
+            tuner.choice("num_trees", [50, 100, 200, 500])
 
-        valid_predictions = model.predict(valid_ds)
-        for i in range(10):
-            print(f"Validation Prediction: {valid_predictions[i]}, SalePrice: {valid_ds_pd[label].iloc[i]}")
-        print()
-        valid_r2 = r2_score(valid_ds_pd[label], valid_predictions)
-        print(f'Validation R-squared: {valid_r2 * 100:.2f}%')
-        RMSE = mean_squared_error(valid_ds_pd[label], valid_predictions, squared=False)
-        print(f'Validation RMSE: {RMSE:.2f}')
-        print()
+            print(tuner.train_config())
 
+            model = tfdf.keras.RandomForestModel(tuner=tuner, task=tfdf.keras.Task.REGRESSION,
+                                                 bootstrap_training_dataset=True, bootstrap_size_ratio=1.0,
+                                                 categorical_algorithm='CART', #RANDOM
+                                                 growing_strategy='LOCAL', #BEST_FIRST_GLOBAL
+                                                 honest=False,
+                                                 min_examples=1,
+                                                 missing_value_policy='GLOBAL_IMPUTATION',
+                                                 num_candidate_attributes=0,
+                                                 random_seed=SEED,
+                                                 winner_take_all=True,
+                                                 )
 
-        # tfdf.model_plotter.plot_model(model, tree_idx=0, max_depth=None)
-        plt.show()
+            model = tfdf.keras.RandomForestModel(task=tfdf.keras.Task.REGRESSION, verbose=2)
+            model.compile(metrics=["mse"])
 
-        logs = model.make_inspector().training_logs()
-        plt.plot([log.num_trees for log in logs], [log.evaluation.rmse for log in logs])
-        plt.xlabel("Number of trees")
-        plt.ylabel("RMSE (out-of-bag)")
-        plt.show()
+            model.fit(x=train_ds)
 
-        # Variable importances
+            model.evaluate(x=train_ds)
 
-        inspector = model.make_inspector()
-        inspector.evaluation()
+            print(model.summary())
+            print()
 
-        print(f"Available variable importances:")
-        for importance in inspector.variable_importances().keys():
-            print("\t", importance)
-        print()
+            print("TensorFlow Decision Forests Results: -------------------")
+            calculate_metrics(model, train_ds_pd, valid_ds_pd)
 
-        inspector = model.make_inspector()
-        print(inspector.evaluation())
+            # tfdf.model_plotter.plot_model(model, tree_idx=0, max_depth=None)
+            # plt.show()
 
-        print(inspector.variable_importances()["NUM_AS_ROOT"])
-        print()
+            logs = model.make_inspector().training_logs()
+            plt.plot([log.num_trees for log in logs], [log.evaluation.rmse for log in logs])
+            plt.xlabel("Number of trees")
+            plt.ylabel("RMSE (out-of-bag)")
+            plt.show()
 
-        plt.figure(figsize=(12, 4))
+            # Variable importances
 
-        # Mean decrease in AUC of class 1 vs. the others.
-        variable_importance_metric = "NUM_AS_ROOT"
-        variable_importances = inspector.variable_importances()[variable_importance_metric]
+            inspector = model.make_inspector()
+            inspector.evaluation()
 
-        # Extract the feature name and importance values.
-        feature_names = [vi[0].name for vi in variable_importances]
-        feature_importances = [vi[1] for vi in variable_importances]
-        # The feature are ordered in decreasing importance value.
-        feature_ranks = range(len(feature_names))
+            print(f"Available variable importances:")
+            for importance in inspector.variable_importances().keys():
+                print("\t", importance)
+            print()
 
-        bar = plt.barh(feature_ranks, feature_importances, label=[str(x) for x in feature_ranks])
-        plt.yticks(feature_ranks, feature_names)
-        plt.gca().invert_yaxis()
+            inspector = model.make_inspector()
+            print(inspector.evaluation())
 
-        # TODO: Replace with "plt.bar_label()" when available.
-        # Label each bar with values
-        for importance, patch in zip(feature_importances, bar.patches):
-            plt.text(patch.get_x() + patch.get_width(), patch.get_y(), f"{importance:.4f}", va="top")
+            print(inspector.variable_importances()["NUM_AS_ROOT"])
+            print()
 
-        plt.xlabel(variable_importance_metric)
-        plt.title("NUM AS ROOT of the class 1 vs the others")
-        plt.tight_layout()
-        plt.show()
+            plt.figure(figsize=(12, 4))
 
+            # Mean decrease in AUC of class 1 vs. the others.
+            variable_importance_metric = "NUM_AS_ROOT"
+            variable_importances = inspector.variable_importances()[variable_importance_metric]
 
-        exp_logger.save({"Id": now, "Model": "TensorFlow Decision Forests",
-                         "Train_R2": train_r2, "Validation_R2": valid_r2, "RMSE": RMSE,
-                         "Hyperparameters": model.predefined_hyperparameters()})
+            # Extract the feature name and importance values.
+            feature_names = [vi[0].name for vi in variable_importances]
+            feature_importances = [vi[1] for vi in variable_importances]
+            # The feature are ordered in decreasing importance value.
+            feature_ranks = range(len(feature_names))
 
+            bar = plt.barh(feature_ranks, feature_importances, label=[str(x) for x in feature_ranks])
+            plt.yticks(feature_ranks, feature_names)
+            plt.gca().invert_yaxis()
 
-        # Error exploration
+            # TODO: Replace with "plt.bar_label()" when available.
+            # Label each bar with values
+            for importance, patch in zip(feature_importances, bar.patches):
+                plt.text(patch.get_x() + patch.get_width(), patch.get_y(), f"{importance:.4f}", va="top")
 
-        # Check the model input keys and semantics #################
-        sample_inputs = {
-            'LotFrontage': tf.constant([80.0], dtype=tf.float32),
-            'LotArea': tf.constant([9600], dtype=tf.int64),
-        }
+            plt.xlabel(variable_importance_metric)
+            plt.title("NUM AS ROOT of the class 1 vs the others")
+            plt.tight_layout()
+            plt.show()
 
+            train_r2, valid_r2, RMSE = calculate_metrics(model, train_ds_pd, valid_ds_pd, label)
 
-        # Predict on the test data ###################################
+            # exp_logger.save({"Id": now, "Model": "TensorFlow Decision Forests",
+            #                  "Train_R2": train_r2, "Validation_R2": valid_r2, "RMSE": RMSE,
+            #                  "Hyperparameters": model.predefined_hyperparameters()})
 
+            # model.save("./saved_models/")
 
+        if self.algorithm == 'sklearndf':
 
-        # model.save("./saved_models/")
+            # Random Forest with scikit-learn
 
+            print("SKLearn Random Forest Regressor Results: -------------------")
 
+            x_train = np.array(data)
+            y_train = data['SalePrice']
 
+            x_test = np.array(valid_ds_pd)
+            y_test = valid_ds_pd['SalePrice']
 
-    if use_sklrean_df:
+            rf_reg = RandomForestRegressor(n_estimators=100, random_state=SEED)
+            rf_reg.fit(x_train, y_train)
 
-        # Random Forest with scikit-learn
+            y_pred_train = rf_reg.predict(x_train)
+            y_pred_test = rf_reg.predict(x_test)
 
-        print("SKLearn Random Forest Regressor Results: -------------------")
+            train_r2 = r2_score(y_train, y_pred_train)
+            test_r2 = r2_score(y_test, y_pred_test)
+            test_mse = mean_squared_error(y_test, y_pred_test)
+            test_rmse = mean_squared_error(y_test, y_pred_test, squared=False)
+            test_mae = mean_absolute_error(y_test, y_pred_test)
 
-        x_train = np.array(data)
-        y_train = data['SalePrice']
+            print(f'Train R-squared: {train_r2 * 100:.2f}%')
+            print(f'Test R-squared: {test_r2 * 100:.2f}%')
+            print(f'Test Mean Squared Error (MSE): {test_mse:.2f}')
+            print(f'Test Root Mean Squared Error (RMSE): {test_rmse:.2f}')
+            print(f'Test Mean Absolute Error (MAE): {test_mae:.2f}')
 
-        x_test = np.array(valid_ds_pd)
-        y_test = valid_ds_pd['SalePrice']
+            print()
 
-        rf_reg = RandomForestRegressor(n_estimators=100, random_state=SEED)
-        rf_reg.fit(x_train, y_train)
+        elif self.algorithm == 'yggdf':
 
-        y_pred_train = rf_reg.predict(x_train)
-        y_pred_test = rf_reg.predict(x_test)
+            if not self.tune:
 
-        train_r2 = r2_score(y_train, y_pred_train)
-        test_r2 = r2_score(y_test, y_pred_test)
-        test_mse = mean_squared_error(y_test, y_pred_test)
-        test_rmse = mean_squared_error(y_test, y_pred_test, squared=False)
-        test_mae = mean_absolute_error(y_test, y_pred_test)
+                # Best found hyperparameters
 
-        print(f'Train R-squared: {train_r2 * 100:.2f}%')
-        print(f'Test R-squared: {test_r2 * 100:.2f}%')
-        print(f'Test Mean Squared Error (MSE): {test_mse:.2f}')
-        print(f'Test Root Mean Squared Error (RMSE): {test_rmse:.2f}')
-        print(f'Test Mean Absolute Error (MAE): {test_mae:.2f}')
+                learner = ydf.RandomForestLearner(label="SalePrice",
+                                                  task=ydf.Task.REGRESSION,
+                                                  include_all_columns=True,
+                                                  features=[
+                                                      # ydf.Feature("PoolArea", monotonic=+1),
+                                                      ],
+                                                  random_seed=SEED,
+                                                  num_trees=750,
+                                                  max_depth=16,
+                                                  bootstrap_size_ratio=0.925,
+                                                  categorical_algorithm="RANDOM",
+                                                  growing_strategy="LOCAL",
+                                                  winner_take_all=False,
 
-        print()
+                                                  )
 
-    if use_yggdrasil:
+                model = learner.train(ds=train_ds_pd, verbose=2)
 
-        learner = ydf.RandomForestLearner(label="SalePrice",
-                                          task=ydf.Task.REGRESSION,
-                                          include_all_columns=True,
-                                          features=[
-                                              # ydf.Feature("PoolArea", monotonic=+1),
-                                          ],
-                                          )
+                print(model.describe())
+                # print(model)
 
-        model = learner.train(ds=train_ds_pd, verbose=2)
+                evaluation = model.evaluate(valid_ds_pd)
 
-        print(model.describe())
-        # print(model)
+                # Query individual evaluation metrics
+                print(f"test accuracy: {evaluation.accuracy}")
 
-        evaluation = model.evaluate(valid_ds_pd)
+                # Show the full evaluation report
+                print("Full evaluation report:")
+                print(evaluation)
 
-        # Query individual evaluation metrics
-        print(f"test accuracy: {evaluation.accuracy}")
+                print("Analytics Results: -------------------")
+                print()
+                analysis = model.analyze(valid_ds_pd, sampling=0.1)
+                print(analysis)
+                analysis.to_file("results/analysis.html")
 
-        # Show the full evaluation report
-        print("Full evaluation report:")
-        print(evaluation)
+                # best_tree = max(tree in tree for tree in model.iter_trees())
+                # model.plot_tree()
 
-        print("Analytics Results: -------------------")
-        print()
-        analysis = model.analyze(valid_ds_pd, sampling=0.1)
-        print(analysis)
-        analysis.to_file("results/analysis.html")
+                print("Benchmark Results: -------------------")
+                # print(model.benchmark(valid_ds_pd))
+                # print(model.to_cpp())
 
-        print("Benchmark Results: -------------------")
-        # print(model.benchmark(valid_ds_pd))
-        # print(model.to_cpp())
+                model.save("./saved_models/best_hyp_model_" + exp_name)
+
+                train_r2, valid_r2, RMSE = calculate_metrics(model, train_ds_pd, valid_ds_pd)
+
+                # exp_logger.save({"Id": now, "Model": "Tuned Yggdrasil Random Forest",
+                #                  "Train_R2": train_r2, "Validation_R2": valid_r2, "RMSE": RMSE,
+                #                  "Hyperparameters": model.data_spec()})
+
+                print("Yggdrasil Submission: -------------------")
+                # print(data.shape, test.shape)
+                # make_submission(model, test)
+
+            else:
+
+                print("Hyperparameter tuning: -------------------")
+
+                tuner = ydf.RandomSearchTuner(num_trials=100)
+
+                # Hyperparameters to optimize.
+                tuner.choice("max_depth", [16, 32])
+                tuner.choice("num_trees", [500, 750, 1000])
+                tuner.choice("bootstrap_size_ratio", [0.9, .925, .91, 1.0])
+                tuner.choice("categorical_algorithm", ["RANDOM", "CART"])
+                tuner.choice("growing_strategy", ["LOCAL", "BEST_FIRST_GLOBAL"])
+                tuner.choice("winner_take_all", [True, False])
+
+                learner = ydf.RandomForestLearner(label="SalePrice",
+                                                  tuner=tuner,
+                                                  task=ydf.Task.REGRESSION,
+                                                  include_all_columns=True,
+                                                  features=[
+                                                      # ydf.Feature("PoolArea", monotonic=+1),
+                                                    ],
+                                                  random_seed=SEED,
+                                                  )
+
+                model = learner.train(ds=train_ds_pd, verbose=1)
+
+                evaluation = learner.cross_validation(valid_ds_pd, folds=10)
+
+                print("Cross validation evaluation:")
+                print(evaluation)
+
+                print("Model description:")
+                print(model.describe())
+                # print(model)
+
+                evaluation = model.evaluate(valid_ds_pd)
+
+                # Query individual evaluation metrics
+                print(f"test accuracy: {evaluation.accuracy}")
+
+                # Show the full evaluation report
+                print("Full evaluation report:")
+                print(evaluation)
+
+                print("Analytics Results: -------------------")
+                print()
+                analysis = model.analyze(valid_ds_pd, sampling=0.1)
+                print(analysis)
+                analysis.to_file("results/" + exp_name + "analysis.html")
+
+
+
+                print("Benchmark Results: -------------------")
+                # print(model.benchmark(valid_ds_pd))
+                # print(model.to_cpp())
+
+                train_r2, valid_r2, RMSE = calculate_metrics(model, train_ds_pd, valid_ds_pd, label)
+
+                # exp_logger.save({"Id": now, "Model": "Tuned Yggdrasil Random Forest",
+                #                  "Train_R2": train_r2, "Validation_R2": valid_r2, "RMSE": RMSE,
+                #                  "Hyperparameters": model.predefined_hyperparameters()})
+
+                model.save("saved_models/model_" + exp_name)
+
+                print("Yggdrasil Submission: -------------------")
+                # print(data.shape, test.shape)
+                # make_submission(model, test)
+
+                logs = model.hyperparameter_optimizer_logs()
+                top_score = max(t.score for t in logs.trials)
+                selected_trial = [t for t in logs.trials if t.score == top_score][0]
+
+                best_trial_index = logs.trials.index(selected_trial)
+                model.plot_tree(best_trial_index)
+
+                print("Best hyperparameters:")
+                print(selected_trial.params)
+
+
 
         # model.save("/my_model")
 
-        print("Yggdrasil Submission: -------------------")
-        print(data.shape, test.shape)
-        make_submission(model, test)
+            model.compile(optimizer='adam', loss='mean_squared_error')
 
         # Hyperparameter tuning
 
-        tuner = ydf.RandomForestTuner(task=ydf.Task.REGRESSION, num_trials=10)
+            model.evaluate(valid_ds_pd)
 
-        logs = model.hyperparameter_optimizer_logs()
-        top_score = max(t.score for t in logs.trials)
-        selected_trial = [t for t in logs.trials if t.score == top_score][0]
-        print(selected_trial.params)  # This is a dictionary
+            m = calculate_metrics(model, train_ds_pd, valid_ds_pd)
 
