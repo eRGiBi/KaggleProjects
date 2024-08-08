@@ -191,10 +191,10 @@ class HousePricesRegression:
 
         # Load the data #############################################
 
-        data = pd.read_csv('data/train.csv')
+        data = pd.read_csv('HousePrices/data/train.csv')
         data = data.drop('Id', axis=1)
 
-        test = pd.read_csv('data/test.csv')
+        test = pd.read_csv('HousePrices/data/test.csv')
         ids = test.pop('Id')
         # test.insert(loc=0, column='SalePrice', value=data['SalePrice'], allow_duplicates=True)
 
@@ -533,14 +533,121 @@ class HousePricesRegression:
                 print(selected_trial.params)
 
 
+        elif self.algorithm == 'NN':
 
-        # model.save("/my_model")
+            batch_size = 64
 
-            model.compile(optimizer='adam', loss='mean_squared_error')
+            x_train = train_ds_pd.drop('SalePrice', axis=1).values
+            y_train = train_ds_pd['SalePrice'].values
+            x_test = valid_ds_pd.drop('SalePrice', axis=1).values
+            y_test = valid_ds_pd['SalePrice'].values
 
-        # Hyperparameter tuning
+            train_dataset = tf.data.Dataset.from_tensor_slices((tf.convert_to_tensor(x_train, dtype=tf.float32),
+                                                                tf.convert_to_tensor(y_train, dtype=tf.float32)))
+            val_dataset = tf.data.Dataset.from_tensor_slices((tf.convert_to_tensor(x_test, dtype=tf.float32),
+                                                              tf.convert_to_tensor(y_test, dtype=tf.float32)))
 
-            model.evaluate(valid_ds_pd)
+            train_loader = train_dataset.shuffle(buffer_size=len(x_train)).batch(batch_size)
+            val_loader = val_dataset.batch(batch_size)
 
-            m = calculate_metrics(model, train_ds_pd, valid_ds_pd)
+            class Net(tf.keras.Model):
+                def __init__(self):
+                    super(Net, self).__init__()
+                    self.fc1 = tf.keras.layers.Dense(512, activation='relu', input_shape=(234,))
+                    self.fc3 = tf.keras.layers.Dense(512, activation='relu')
+                    self.fc4 = tf.keras.layers.Dense(256, activation='relu')
+                    self.fc5 = tf.keras.layers.Dense(1)
+
+                def call(self, x):
+                    x = self.fc1(x)
+                    x = self.fc3(x)
+                    x = self.fc4(x)
+                    x = self.fc5(x)
+                    return x
+
+            model = Net()
+
+            criterion = tf.keras.losses.MeanSquaredError()
+            # criterion = tf.keras.losses.MeanAbsoluteError()
+            optimizer = tf.keras.optimizers.Adam(learning_rate=2.5e-4, epsilon=1e-5)
+            device = "GPU" if tf.config.list_physical_devices('GPU') else "CPU"
+            print(f"Using device: {device}")
+
+            num_epochs = 50
+            train_losses = []
+            val_losses = []
+            val_accuracies = []
+
+            for epoch in range(num_epochs):
+                print(f"Epoch {epoch + 1}/{num_epochs}")
+
+                train_loss = 0
+                for step, (batch_x, batch_y) in enumerate(train_loader):
+                    with tf.GradientTape() as tape:
+                        outputs = model(batch_x, training=True)
+                        loss = criterion(batch_y, tf.squeeze(outputs))
+
+                    grads = tape.gradient(loss, model.trainable_weights)
+                    optimizer.apply_gradients(zip(grads, model.trainable_weights))
+
+                    train_loss += loss.numpy()
+
+                train_losses.append(train_loss / len(train_loader))
+
+                # Validation loop
+                val_loss = 0
+                for batch_x, batch_y in val_loader:
+                    outputs = model(batch_x, training=False)
+                    loss = criterion(batch_y, tf.squeeze(outputs))
+                    val_loss += loss.numpy()
+
+                val_losses.append(val_loss / len(val_loader))
+
+                print(
+                    f"Epoch {epoch + 1}/{num_epochs}, "
+                    f"Train Loss: {train_loss / len(train_loader):.4f}, "
+                    f"Validation Loss: {val_loss / len(val_loader):.4f}"
+                )
+
+            train_losses = np.array(train_losses)
+            val_losses = np.array(val_losses)
+
+            # Set model to inference mode (not strictly necessary in TensorFlow as it handles this automatically)
+            # Making predictions on training and testing data
+            x_train_tensor = tf.convert_to_tensor(x_train, dtype=tf.float32)
+            x_test_tensor = tf.convert_to_tensor(x_test, dtype=tf.float32)
+
+            # Make predictions
+            y_train_pred = model(x_train_tensor, training=False).numpy()
+            y_test_pred = model(x_test_tensor, training=False).numpy()
+
+            train_r2 = r2_score(y_train, y_train_pred)
+            test_r2 = r2_score(y_test, y_test_pred)
+            test_mse = mean_squared_error(y_test, y_test_pred)
+            test_rmse = np.sqrt(test_mse)
+            test_mae = mean_absolute_error(y_test, y_test_pred)
+
+            print(f'Train R-squared: {train_r2 * 100:.2f}%')
+            print(f'Test R-squared: {test_r2 * 100:.2f}%')
+            print(f'Test Mean Squared Error (MSE): {test_mse:.2f}')
+            print(f'Test Root Mean Squared Error (RMSE): {test_rmse:.2f}')
+            print(f'Test Mean Absolute Error (MAE): {test_mae:.2f}')
+
+            plt.figure(figsize=(10, 5))
+            plt.plot(y_test, label='Actual', marker='o', linestyle='None')
+            plt.plot(y_test_pred, label='Predicted', marker='x', linestyle='None')
+            plt.legend()
+            plt.xlabel('Sample index')
+            plt.ylabel('Value')
+            plt.title('Actual vs Predicted Values')
+            plt.show()
+
+            plt.figure(figsize=(10, 5))
+            plt.plot(train_losses, label='Training Loss')
+            plt.plot(val_losses, label='Validation Loss')
+            plt.legend()
+            plt.xlabel('Epoch')
+            plt.ylabel('Loss')
+            plt.title('Training and Validation Loss')
+            plt.show()
 
