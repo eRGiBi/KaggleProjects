@@ -187,7 +187,7 @@ class HousePricesRegression:
 
         now = datetime.now().strftime("%m.%d.%Y_%H.%M.%S")
         exp_name = "experiment_" + str(now)
-        # exp_logger = ExperimentLogger('submissions/experiment_aggregate.csv')
+        exp_logger = ExperimentLogger('HousePrices/submissions/experiment_aggregate.csv')
 
         # Load the data #############################################
 
@@ -241,7 +241,7 @@ class HousePricesRegression:
 
         # Split the data to train and validation #############################################
 
-        def split_dataset(dataset, test_ratio=0.10):
+        def split_dataset(dataset, test_ratio=0.15):
             test_indices = np.random.rand(len(dataset)) < test_ratio
             return dataset[~test_indices], dataset[test_indices]
 
@@ -535,7 +535,10 @@ class HousePricesRegression:
 
         elif self.algorithm == 'NN':
 
-            batch_size = 64
+            batch_size = 128
+            activation_func = 'gelu'
+            # activation_func = 'relu'
+            # activation_func = 'mish'
 
             x_train = train_ds_pd.drop('SalePrice', axis=1).values
             y_train = train_ds_pd['SalePrice'].values
@@ -548,32 +551,64 @@ class HousePricesRegression:
                                                               tf.convert_to_tensor(y_test, dtype=tf.float32)))
 
             train_loader = train_dataset.shuffle(buffer_size=len(x_train)).batch(batch_size)
-            val_loader = val_dataset.batch(batch_size)
+            val_loader = val_dataset.shuffle(buffer_size=len(val_dataset)).batch(batch_size)
 
             class Net(tf.keras.Model):
                 def __init__(self):
                     super(Net, self).__init__()
-                    self.fc1 = tf.keras.layers.Dense(512, activation='relu', input_shape=(234,))
-                    self.fc3 = tf.keras.layers.Dense(512, activation='relu')
-                    self.fc4 = tf.keras.layers.Dense(256, activation='relu')
-                    self.fc5 = tf.keras.layers.Dense(1)
+
+                    self.net = tf.keras.Sequential([
+
+                       # tf.keras.layers.Dense(234, activation=activation_func, input_shape=(234,)),
+
+                    ])
+                        
+                    self.net.add(tf.keras.layers.Dense(234, activation=activation_func))
+
+                    for i in range(7):
+                        self.net.add(tf.keras.layers.Dense(1024, activation=activation_func))
+                        self.net.add(tf.keras.layers.Dropout(0.2))
+
+                    for i in range(2):
+                        self.net.add(tf.keras.layers.Dense(512, activation=activation_func))
+                        # self.net.add(tf.keras.layers.Dropout(0.2))
+
+                    self.net.add(tf.keras.layers.Dense(1))
+
+                    # self.fc1 = tf.keras.layers.Dense(1024, activation=activation_func, input_shape=(234,))
+                    # self.fc2 = tf.keras.layers.Dense(1024, activation=activation_func)
+                    # self.fc3 = tf.keras.layers.Dense(1024, activation=activation_func)
+                    # self.fc4 = tf.keras.layers.Dense(1024, activation=activation_func)
+                    # self.fc5 = tf.keras.layers.Dense(1024, activation=activation_func)
+                    # self.fc6 = tf.keras.layers.Dense(1024, activation=activation_func)
+                    # self.fc7 = tf.keras.layers.Dense(1024, activation=activation_func)
+                    # self.fc8 = tf.keras.layers.Dense(512, activation=activation_func)
+                    # self.fc9 = tf.keras.layers.Dense(512, activation=activation_func)
+                    # self.fc10 = tf.keras.layers.Dense(1)
 
                 def call(self, x):
-                    x = self.fc1(x)
-                    x = self.fc3(x)
-                    x = self.fc4(x)
-                    x = self.fc5(x)
+                    x = self.net(x)
+                    # x = self.fc1(x)
+                    # x = self.fc2(x)
+                    # x = self.fc3(x)
+                    # x = self.fc4(x)
+                    # x = self.fc5(x)
+                    # x = self.fc6(x)
+                    # x = self.fc7(x)
+                    # x = self.fc8(x)
+                    # x = self.fc9(x)
+                    # x = self.fc10(x)
                     return x
 
             model = Net()
 
             criterion = tf.keras.losses.MeanSquaredError()
             # criterion = tf.keras.losses.MeanAbsoluteError()
-            optimizer = tf.keras.optimizers.Adam(learning_rate=2.5e-4, epsilon=1e-5)
+            optimizer = tf.keras.optimizers.Adam(learning_rate=3.5e-4, epsilon=1e-5)
             device = "GPU" if tf.config.list_physical_devices('GPU') else "CPU"
             print(f"Using device: {device}")
 
-            num_epochs = 50
+            num_epochs = 650
             train_losses = []
             val_losses = []
             val_accuracies = []
@@ -651,3 +686,16 @@ class HousePricesRegression:
             plt.title('Training and Validation Loss')
             plt.show()
 
+            print(model.summary())
+            print(model.get_config())
+            print(optimizer.get_config())
+            print(model.loss)
+
+            exp_logger.save({"Id": now, "Model": "TF Neural Network",
+                             "Train_R2": train_r2, "Validation_R2": test_r2, "RMSE": test_rmse,
+                             "Hyperparameters": f"Epochs: {num_epochs}, Batch Size: {batch_size}, "
+                                                f"Activation Function: {activation_func}, Model: {model.get_config()}"}
+                            )
+
+
+            exit()
