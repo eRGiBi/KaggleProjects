@@ -278,7 +278,8 @@ class HousePricesRegression:
             print(tuner.train_config())
 
             model = tfdf.keras.RandomForestModel(tuner=tuner, task=tfdf.keras.Task.REGRESSION,
-                                                 bootstrap_training_dataset=True, bootstrap_size_ratio=1.0,
+                                                 bootstrap_training_dataset=True,
+                                                 bootstrap_size_ratio=1.0,
                                                  categorical_algorithm='CART', #RANDOM
                                                  growing_strategy='LOCAL', #BEST_FIRST_GLOBAL
                                                  honest=False,
@@ -557,48 +558,28 @@ class HousePricesRegression:
                 def __init__(self):
                     super(Net, self).__init__()
 
-                    self.net = tf.keras.Sequential([
+                    self.input_layer = tf.keras.layers.Dense(234, activation=activation_func)
 
-                       # tf.keras.layers.Dense(234, activation=activation_func, input_shape=(234,)),
-
-                    ])
-                        
-                    self.net.add(tf.keras.layers.Dense(234, activation=activation_func))
-
+                    self.hidden_layers = []
                     for i in range(7):
-                        self.net.add(tf.keras.layers.Dense(1024, activation=activation_func))
-                        self.net.add(tf.keras.layers.Dropout(0.2))
+                        self.hidden_layers.append(tf.keras.layers.Dense(1024, activation=activation_func))
+                        self.hidden_layers.append(tf.keras.layers.Dropout(0.2))
 
+                    self.additional_layers = []
                     for i in range(2):
-                        self.net.add(tf.keras.layers.Dense(512, activation=activation_func))
-                        # self.net.add(tf.keras.layers.Dropout(0.2))
+                        self.additional_layers.append(tf.keras.layers.Dense(512, activation=activation_func))
+                        self.additional_layers.append(tf.keras.layers.Dropout(0.2))
 
-                    self.net.add(tf.keras.layers.Dense(1))
-
-                    # self.fc1 = tf.keras.layers.Dense(1024, activation=activation_func, input_shape=(234,))
-                    # self.fc2 = tf.keras.layers.Dense(1024, activation=activation_func)
-                    # self.fc3 = tf.keras.layers.Dense(1024, activation=activation_func)
-                    # self.fc4 = tf.keras.layers.Dense(1024, activation=activation_func)
-                    # self.fc5 = tf.keras.layers.Dense(1024, activation=activation_func)
-                    # self.fc6 = tf.keras.layers.Dense(1024, activation=activation_func)
-                    # self.fc7 = tf.keras.layers.Dense(1024, activation=activation_func)
-                    # self.fc8 = tf.keras.layers.Dense(512, activation=activation_func)
-                    # self.fc9 = tf.keras.layers.Dense(512, activation=activation_func)
-                    # self.fc10 = tf.keras.layers.Dense(1)
+                    self.output_layer = tf.keras.layers.Dense(1)
 
                 def call(self, x):
-                    x = self.net(x)
-                    # x = self.fc1(x)
-                    # x = self.fc2(x)
-                    # x = self.fc3(x)
-                    # x = self.fc4(x)
-                    # x = self.fc5(x)
-                    # x = self.fc6(x)
-                    # x = self.fc7(x)
-                    # x = self.fc8(x)
-                    # x = self.fc9(x)
-                    # x = self.fc10(x)
-                    return x
+                    x = self.input_layer(x)
+                    for layer in self.hidden_layers:
+                        x = layer(x)
+                    for layer in self.additional_layers:
+                        x = layer(x)
+
+                    return self.output_layer(x)
 
             model = Net()
 
@@ -696,6 +677,5 @@ class HousePricesRegression:
                              "Hyperparameters": f"Epochs: {num_epochs}, Batch Size: {batch_size}, "
                                                 f"Activation Function: {activation_func}, Model: {model.get_config()}"}
                             )
-
 
             exit()
