@@ -2,4 +2,7 @@ from HousePrices.HousePrices import HousePricesRegression
 
 if __name__ == '__main__':
 
-    HousePricesRegression(algorithm="NN", tune=False)
+    # TODO: ArgParser
+
+    HousePricesRegression(algorithm="NN", tune=False).run()
+    # HousePricesRegression(algorithm="yggdf", tune=False).run()
