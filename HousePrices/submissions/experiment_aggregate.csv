@@ -22,3 +22,4 @@
 08.13.2024_21.31.29,TF Neural Network,0.966579258441925,0.8707583546638489,29720.203123103936,"Epochs: 450, Batch Size: 128, Activation Function: gelu, Optimizer: Adam, Learning Rate: 0.00035, Loss: MSE, Dropout: 0.2"
 08.13.2024_22.12.52,TF Neural Network,0.9681415557861328,0.7923290133476257,30583.769034455723,"Epochs: 450, Batch Size: 128, Activation Function: gelu, Optimizer: Adam, Learning Rate: 0.00035, Loss: MSE, Dropout: 0.2"
 08.13.2024_22.25.20,TF Neural Network,0.9695833921432495,0.804176926612854,29698.536688540833,"Epochs: 450, Batch Size: 128, Activation Function: gelu, Optimizer: Adam, Learning Rate: 0.00035, Loss: MSE, Dropout: 0.2"
+08.13.2024_23.08.35,TF Neural Network,0.9578633904457092,0.8017685413360596,29880.60888833904,"Epochs: 450, Batch Size: 128, Activation Function: gelu, Optimizer: Adam, Learning Rate: 0.00035, Loss: MSE, Dropout: 0.2"
