@@ -369,7 +369,7 @@ class HousePricesRegression:
         # test.insert(loc=0, column='SalePrice', value=data['SalePrice'], allow_duplicates=True)
 
         # Data exploration ###########################################
-        explore_data(data, plot=True)
+        # explore_data(data, plot=True)
         # explore_data(test, plot=False, test=True)
 
         sns.heatmap(data.isnull(), cmap='viridis')
@@ -382,7 +382,7 @@ class HousePricesRegression:
         data, test = preprocess_data(data, test)
         data = pd.DataFrame(data, columns=data.columns)
 
-        explore_data(data, plot=True)
+        # explore_data(data, plot=True)
 
         sns.heatmap(data.isnull(), cmap='viridis')
         plt.show()
@@ -414,6 +414,8 @@ class HousePricesRegression:
         print("{} examples in training, {} examples in testing.".format(
             len(train_ds_pd), len(valid_ds_pd)))
 
+        vds = ydf.create_vertical_dataset(train_ds_pd, include_all_columns=True)
+        print(vds.memory_usage())
 
 
         if self.algorithm == 'tfdf':
@@ -613,10 +615,12 @@ class HousePricesRegression:
 
                 print("Hyperparameter tuning: -------------------")
 
-                tuner = ydf.RandomSearchTuner(num_trials=100)
+                tuner = ydf.RandomSearchTuner(num_trials=1000)
 
                 # Hyperparameters to optimize.
                 tuner.choice("max_depth", [16, 32])
+                # tuner.choice("max_vocab_count", [500, 100, 200, 300, 1000, 2000, 3000])
+                # tuner.choice("min_vocab_frequency", [5, 10, 2, 3])
                 tuner.choice("num_trees", [500, 750, 1000])
                 tuner.choice("bootstrap_size_ratio", [0.9, .925, .91, 1.0])
                 tuner.choice("categorical_algorithm", ["RANDOM", "CART"])
@@ -657,26 +661,19 @@ class HousePricesRegression:
                 print()
                 analysis = model.analyze(valid_ds_pd, sampling=0.1)
                 print(analysis)
-                analysis.to_file("results/" + exp_name + "analysis.html")
-
-
+                analysis.to_file("HousePrices/results/" + exp_name + "_analysis.html")
 
                 print("Benchmark Results: -------------------")
                 # print(model.benchmark(valid_ds_pd))
                 # print(model.to_cpp())
 
-                train_r2, valid_r2, RMSE = calculate_metrics(model, train_ds_pd, valid_ds_pd, label)
+                train_r2, valid_r2, RMSE = calculate_metrics(model, train_ds_pd, valid_ds_pd)
 
                 exp_logger.save({"Id": now, "Model": "Tuned Yggdrasil Random Forest",
                                  "Train_R2": train_r2, "Validation_R2": valid_r2, "RMSE": RMSE,
-                                 "Hyperparameters": model.predefined_hyperparameters()}
+                                 # "Hyperparameters": model.predefined_hyperparameters()
+                                 }
                                 )
-
-                model.save("saved_models/model_" + exp_name)
-
-                print("Yggdrasil Submission: -------------------")
-                print(data.shape, test.shape)
-                make_submission(model, test, ids, exp_name)
 
                 logs = model.hyperparameter_optimizer_logs()
                 top_score = max(t.score for t in logs.trials)
@@ -687,6 +684,15 @@ class HousePricesRegression:
 
                 print("Best hyperparameters:")
                 print(selected_trial.params)
+
+                model.save("saved_models/model_" + exp_name)
+
+                print("Yggdrasil Submission: -------------------")
+                make_submission(model, test, ids, exp_name)
+
+
+
+                exit()
 
 
         elif self.algorithm == 'NN':
