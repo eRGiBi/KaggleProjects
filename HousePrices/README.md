@@ -29,6 +29,14 @@
 
    - And hyperparameter tuning the above models with Random search
 
+   - Ensemble learning with
+     - Ridge Regression
+     - Gradient Boosting
+     - xgboost
+     - LightGBM
+     - Random Forest
+     - and a StackingCVRegressor 
+
 
 4. Model evaluation
 
@@ -39,10 +47,13 @@
 5. Results
    
    - Both the Random Forest and Neural Network models with the best parameters 
-achieve only about 80–90% accuracy on the test data.
+achieve only about 80–90% R2 accuracy on the test data, and a Kaggle public score 
+of about 0.147+.
+   - The ensemble model outperforms every non-stacked model with a Kaggle public score of 0.12+.
 
 
 
 TODO:
 
 Skewness and Kurtosis fix.
+Log (or Johnson) transformation of the target variable.
