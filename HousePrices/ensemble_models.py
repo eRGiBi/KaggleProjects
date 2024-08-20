@@ -124,27 +124,13 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name):
                                random_state=42
                                )
 
-    yggrf = ydf.RandomForestLearner(label="SalePrice",
-                                          task=ydf.Task.REGRESSION,
-                                          include_all_columns=True,
-                                          features=[
-                                              # ydf.Feature("PoolArea", monotonic=+1),
-                                          ],
-                                          random_seed=42,
-                                          num_trees=750,
-                                          max_depth=16,
-                                          bootstrap_size_ratio=0.925,
-                                          categorical_algorithm="RANDOM",
-                                          growing_strategy="LOCAL",
-                                          winner_take_all=False,
-                                          )
 
     # nn_model = tf.keras.models.load_model('HousePrices/saved_models/nn_model_experiment_08.20.2024_22.39.52.h5')
 
     stack_gen = StackingCVRegressor(regressors=(xgboost, lightgbm,
                                                 # svr,
                                                 # nn_model,
-                                                yggrf,
+
                                                 ridge, gbr, rf),
                                     meta_regressor=xgboost,
                                     use_features_in_secondary=True
@@ -171,10 +157,6 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name):
     score = cv_rmse(rf)
     print("rf: {:.4f} ({:.4f})".format(score.mean(), score.std()))
     scores['rf'] = (score.mean(), score.std())
-
-    score = cv_rmse(yggrf)
-    print("yggrf: {:.4f} ({:.4f})".format(score.mean(), score.std()))
-    scores['yggrf'] = (score.mean(), score.std())
 
     score = cv_rmse(gbr)
     print("gbr: {:.4f} ({:.4f})".format(score.mean(), score.std()))
@@ -208,19 +190,15 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name):
     gbr_model_full_data = gbr.fit(X, train_labels)
     # calculate_metrics(gbr_model_full_data, train_ds_pd, valid_ds_pd)
 
-    print('YGG RandomForest')
-    yggrf_model_full_data = yggrf.train(train_ds_pd, valid_ds_pd)
-    # calculate_metrics(yggrf_model_full_data, train_ds_pd, valid_ds_pd)
 
     def blended_predictions(X):
         return ((0.1 * ridge_model_full_data.predict(X)) + \
                 # (0.2 * svr_model_full_data.predict(X)) + \
                 # (0.2 * nn_model.predict(X)) + \
                 (0.1 * gbr_model_full_data.predict(X)) + \
-                (0.1 * xgb_model_full_data.predict(X)) + \
+                (0.3 * xgb_model_full_data.predict(X)) + \
                 (0.1 * lgb_model_full_data.predict(X)) + \
                 (0.05 * rf_model_full_data.predict(X)) + \
-                (0.2 * yggrf_model_full_data.predict(X)) + \
                 (0.35 * stack_gen_model.predict(np.array(X))))
 
     blended_score = rmsle(train_labels, blended_predictions(X))
