@@ -25,3 +25,6 @@
 08.13.2024_23.08.35,TF Neural Network,0.9578633904457092,0.8017685413360596,29880.60888833904,"Epochs: 450, Batch Size: 128, Activation Function: gelu, Optimizer: Adam, Learning Rate: 0.00035, Loss: MSE, Dropout: 0.2"
 08.15.2024_22.18.34,Tuned Yggdrasil Random Forest,0.9678200483322144,0.911547839641571,19959.851326463053
 experiment_08.20.2024_22.39.52,TF Neural Network,0.9561293721199036,0.8341030478477478,33672.06367467732,"Epochs: 450, Batch Size: 128, Activation Function: gelu, Optimizer: Adam, Learning Rate: 0.00035, Loss: MSE, Dropout: 0.2"
+experiment_08.23.2024_21.33.05,TF Neural Network,0.9610918760299683,0.8648756742477417,30389.06598852119,"Epochs: 450, Batch Size: 128, Activation Function: gelu, Optimizer: Adam, Learning Rate: 0.00035, Loss: MSE, Dropout: 0.2"
+experiment_08.23.2024_21.46.44,TF Neural Network,0.9443516731262207,0.8296719193458557,34118.79418068752,"Epochs: 450, Batch Size: 128, Activation Function: gelu, Optimizer: Adam, Learning Rate: 0.00035, Loss: MSE, Dropout: 0.2"
+experiment_08.23.2024_23.09.50,TF Neural Network,0.989366888999939,0.8337872624397278,33704.097155652926,"Epochs: 950, Batch Size: 128, Activation Function: gelu, Optimizer: Adam, Learning Rate: 0.00015, Loss: MSE, Dropout: 0.2"
