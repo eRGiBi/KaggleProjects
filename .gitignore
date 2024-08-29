@@ -160,3 +160,5 @@ cython_debug/
 #.idea/
 /.idea
 /NP Tutorials
+/IndiaAirQual/data
+/ISIC2024_SkinCancerDetection/data
