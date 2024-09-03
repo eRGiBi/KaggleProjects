@@ -162,3 +162,5 @@ cython_debug/
 /NP Tutorials
 /IndiaAirQual/data
 /ISIC2024_SkinCancerDetection/data
+
+*.html
