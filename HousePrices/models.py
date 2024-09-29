@@ -401,6 +401,8 @@ def tf_neural_network(train_ds_pd, valid_ds_pd, test, ids, exp_name, submit=Fals
             for i in range(7):
                 self.hidden_layers.append(tf.keras.layers.Dense(1024, activation=activation_func))
                 self.hidden_layers.append(tf.keras.layers.Dropout(0.2))
+                self.hidden_layers.append(tf.keras.layers.BatchNormalization())
+
 
             self.additional_layers = []
             for i in range(2):
@@ -503,7 +505,7 @@ def tf_neural_network(train_ds_pd, valid_ds_pd, test, ids, exp_name, submit=Fals
     print(optimizer.get_config())
     print(model.loss)
 
-    model.save("saved_models/nn_model_" + exp_name + ".keras")
+    model.save("HousePrices/saved_models/nn_model_" + exp_name + ".keras")
 
     exp_logger.save({"Id": exp_name, "Model": "TF Neural Network",
                      "Train_R2": train_r2, "Validation_R2": test_r2, "RMSE": test_rmse,
