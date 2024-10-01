@@ -199,7 +199,8 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name):
                 (0.3 * xgb_model_full_data.predict(X)) + \
                 (0.1 * lgb_model_full_data.predict(X)) + \
                 (0.05 * rf_model_full_data.predict(X)) + \
-                (0.35 * stack_gen_model.predict(np.array(X))))
+                (0.35 * stack_gen_model.predict(np.array(X)))
+                )
 
     blended_score = rmsle(train_labels, blended_predictions(X))
     scores['blended'] = (blended_score, 0)
