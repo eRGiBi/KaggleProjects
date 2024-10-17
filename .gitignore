@@ -165,3 +165,4 @@ cython_debug/
 /ISIC2024_SkinCancerDetection/data
 
 *.html
+tra/transformers.py
