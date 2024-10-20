@@ -166,3 +166,4 @@ cython_debug/
 
 *.html
 tra/transformers.py
+desktop.ini
