@@ -20,8 +20,8 @@ import tensorflow as tf
 
 import seaborn as sns
 
-def calculate_metrics(model, train_ds_pd, valid_ds_pd, label='SalePrice'):
 
+def calculate_metrics(model, train_ds_pd, valid_ds_pd, label='SalePrice'):
     train_ds_pd = train_ds_pd.drop([label], axis=1)
     valid_ds_pd = valid_ds_pd.drop([label], axis=1)
 
@@ -51,8 +51,14 @@ def calculate_metrics(model, train_ds_pd, valid_ds_pd, label='SalePrice'):
 
     return train_r2, valid_r2, RMSE
 
+
 def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name):
-    """https://www.kaggle.com/code/lavanyashukla01/how-i-made-top-0-3-on-a-kaggle-competition#Train-a-model"""
+    """
+        Ensemble model using StackingCVRegressor from mlxtend library.
+
+        1. https://www.kaggle.com/serigne/stacked-regressions-top-4-on-leaderboard
+        2. https://www.kaggle.com/code/lavanyashukla01/how-i-made-top-0-3-on-a-kaggle-competition#Train-a-model
+    """
 
     train_labels = train_ds_pd['SalePrice']
     X = train_ds_pd.drop(['SalePrice'], axis=1)
@@ -66,7 +72,7 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name):
         rmse = np.sqrt(-cross_val_score(model, X, train_labels, scoring="neg_mean_squared_error", cv=kf))
         return (rmse)
 
-    # Light Gradient Boosting Regressor
+    # Light Gradient Boosting
     lightgbm = LGBMRegressor(objective='regression',
                              num_leaves=6,
                              learning_rate=0.01,
@@ -81,7 +87,6 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name):
                              verbose=-1,
                              random_state=42)
 
-    # XGBoost Regressor
     xgboost = XGBRegressor(learning_rate=0.01,
                            n_estimators=6000,
                            max_depth=4,
@@ -124,7 +129,6 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name):
                                random_state=42
                                )
 
-
     # nn_model = tf.keras.models.load_model('HousePrices/saved_models/nn_model_experiment_08.20.2024_22.39.52.h5')
 
     stack_gen = StackingCVRegressor(regressors=(xgboost, lightgbm,
@@ -162,7 +166,6 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name):
     print("gbr: {:.4f} ({:.4f})".format(score.mean(), score.std()))
     scores['gbr'] = (score.mean(), score.std())
 
-
     print('stack_gen')
     stack_gen_model = stack_gen.fit(np.array(X), np.array(train_labels))
 
@@ -188,8 +191,8 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name):
 
     print('GradientBoosting')
     gbr_model_full_data = gbr.fit(X, train_labels)
-    # calculate_metrics(gbr_model_full_data, train_ds_pd, valid_ds_pd)
 
+    # calculate_metrics(gbr_model_full_data, train_ds_pd, valid_ds_pd)
 
     def blended_predictions(X):
         return ((0.1 * ridge_model_full_data.predict(X)) + \
@@ -204,7 +207,7 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name):
 
     blended_score = rmsle(train_labels, blended_predictions(X))
     scores['blended'] = (blended_score, 0)
-    print('RMSLE score on train data:')
+    print('RMSLE score on the training dataset:')
     print(blended_score)
 
     sns.set_style("white")
@@ -215,10 +218,16 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name):
                        # linestyles=['-']
                        )
     for i, score in enumerate(scores.values()):
-        ax.text(i, score[0] + 0.002, '{:.6f}'.format(score[0]), horizontalalignment='left', size='large', color='black',
-                weight='semibold')
+        ax.text(i,
+                score[0] + 0.002,
+                '{:.6f}'.format(score[0]),
+                horizontalalignment='left',
+                size='large',
+                color='black',
+                weight='semibold'
+                )
 
-    plt.ylabel('Score (RMSE)', size=20, labelpad=12.5)
+    plt.ylabel('RMSE', size=20, labelpad=12.5)
     plt.xlabel('Model', size=20, labelpad=12.5)
     plt.tick_params(axis='x', labelsize=13.5)
     plt.tick_params(axis='y', labelsize=12.5)
@@ -227,8 +236,9 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name):
 
     plt.show()
 
-    submission = pd.read_csv("HousePrices/data/sample_submission.csv")
+    # Submission
 
+    submission = pd.read_csv("HousePrices/data/sample_submission.csv")
 
     submission.iloc[:, 1] = np.floor((blended_predictions(test)))
 
@@ -242,6 +252,3 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name):
     submission['SalePrice'] *= 1.001619
 
     submission.to_csv("HousePrices/submissions/submission_" + exp_name + "_2.csv", index=False)
-
-
-
