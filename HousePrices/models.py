@@ -1,25 +1,21 @@
-import time
-from datetime import datetime
-
 import numpy as np
 import pandas as pd
 from scipy.stats import stats
 from sklearn.cluster import DBSCAN
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 # import category_encoders as ce
-from sklearn.preprocessing import LabelEncoder, OneHotEncoder, StandardScaler
-from sklearn.impute import SimpleImputer
 from sklearn.ensemble import RandomForestRegressor, IsolationForest
 
 import tensorflow as tf
-import tensorflow_decision_forests as tfdf
+# import tensorflow_decision_forests as tfdf
 
 import ydf
 
-import seaborn as sns
 import matplotlib.pyplot as plt
 
 import warnings
+
+from sklearn.model_selection import RandomizedSearchCV
 
 from ExperimentLogger import ExperimentLogger
 
@@ -27,7 +23,6 @@ warnings.filterwarnings(action="ignore")
 pd.options.display.max_seq_items = 8000
 pd.options.display.max_rows = 8000
 
-SEED = 47612
 exp_logger = ExperimentLogger('HousePrices/submissions/experiment_aggregate.csv')
 
 
@@ -82,110 +77,108 @@ def make_submission(model, test_data, ids, exp_name='experiment'):
     print(sample_submission_df.head())
 
 
-def tf_decision_forests(train_ds_pd, valid_ds_pd):
-    # Random Forest regression with TensorFlow Decision Forests
+# def tf_decision_forests(train_ds_pd, valid_ds_pd):
+#     # Random Forest regression with TensorFlow Decision Forests
+#
+#     label = 'SalePrice'
+#     train_ds_pd = train_ds_pd.drop(['SalePrice'], axis=1)
+#     train_ds = tfdf.keras.pd_dataframe_to_tf_dataset(train_ds_pd, label=label,
+#                                                      task=tfdf.keras.Task.REGRESSION,
+#                                                      max_num_classes=700)
+#     valid_ds = tfdf.keras.pd_dataframe_to_tf_dataset(valid_ds_pd, label=label,
+#                                                      task=tfdf.keras.Task.REGRESSION,
+#                                                      max_num_classes=700)
+#     tuner = tfdf.tuner.RandomSearch(num_trials=20, trial_num_threads=3)
+#
+#     # Hyperparameters to optimize
+#     tuner.choice("max_depth", [4, 5, 7, 16, 32])
+#     tuner.choice("num_trees", [50, 100, 200, 500])
+#
+#     print(tuner.train_config())
+#
+#     model = tfdf.keras.RandomForestModel(tuner=tuner, task=tfdf.keras.Task.REGRESSION,
+#                                          bootstrap_training_dataset=True,
+#                                          bootstrap_size_ratio=1.0,
+#                                          categorical_algorithm='CART',  # RANDOM
+#                                          growing_strategy='LOCAL',  # BEST_FIRST_GLOBAL
+#                                          honest=False,
+#                                          min_examples=1,
+#                                          missing_value_policy='GLOBAL_IMPUTATION',
+#                                          num_candidate_attributes=0,
+#                                          random_seed=SEED,
+#                                          winner_take_all=True,
+#                                          verbose=2
+#                                          )
+#
+#     model.compile(metrics=["mse"])
+#
+#     model.fit(x=train_ds)
+#
+#     model.evaluate(x=train_ds)
+#
+#     print(model.summary())
+#     print()
+#
+#     print("TensorFlow Decision Forests Results: -------------------")
+#     calculate_metrics(model, train_ds_pd, valid_ds_pd)
+#
+#     # tfdf.model_plotter.plot_model(model, tree_idx=0, max_depth=None)
+#     # plt.show()
+#
+#     logs = model.make_inspector().training_logs()
+#     plt.plot([log.num_trees for log in logs], [log.evaluation.rmse for log in logs])
+#     plt.xlabel("Number of trees")
+#     plt.ylabel("RMSE (out-of-bag)")
+#     plt.show()
+#
+#     # Variable importance
+#     inspector = model.make_inspector()
+#     inspector.evaluation()
+#
+#     print(f"Available variable importance:")
+#     for importance in inspector.variable_importances().keys():
+#         print("\t", importance)
+#     print()
+#
+#     inspector = model.make_inspector()
+#     print(inspector.evaluation())
+#
+#     print(inspector.variable_importances()["NUM_AS_ROOT"])
+#     print()
+#
+#     plt.figure(figsize=(12, 4))
+#
+#     variable_importance_metric = "NUM_AS_ROOT"
+#     variable_importances = inspector.variable_importances()[variable_importance_metric]
+#
+#     feature_names = [vi[0].name for vi in variable_importances]
+#     feature_importances = [vi[1] for vi in variable_importances]
+#     feature_ranks = range(len(feature_names))
+#
+#     bar = plt.barh(feature_ranks, feature_importances, label=[str(x) for x in feature_ranks])
+#     plt.yticks(feature_ranks, feature_names)
+#     plt.gca().invert_yaxis()
+#
+#     # Label each bar with values
+#     for importance, patch in zip(feature_importances, bar.patches):
+#         plt.text(patch.get_x() + patch.get_width(), patch.get_y(), f"{importance:.4f}", va="top")
+#
+#     plt.xlabel(variable_importance_metric)
+#     plt.title("NUM AS ROOT of the class 1 vs the others")
+#     plt.tight_layout()
+#     plt.show()
+#
+#     train_r2, valid_r2, RMSE = calculate_metrics(model, train_ds_pd, valid_ds_pd, label)
 
-    label = 'SalePrice'
-    train_ds_pd = train_ds_pd.drop(['SalePrice'], axis=1)
-    train_ds = tfdf.keras.pd_dataframe_to_tf_dataset(train_ds_pd, label=label,
-                                                     task=tfdf.keras.Task.REGRESSION,
-                                                     max_num_classes=700)
-    valid_ds = tfdf.keras.pd_dataframe_to_tf_dataset(valid_ds_pd, label=label,
-                                                     task=tfdf.keras.Task.REGRESSION,
-                                                     max_num_classes=700)
-    tuner = tfdf.tuner.RandomSearch(num_trials=20, trial_num_threads=3)
+# exp_logger.save({"Id": exp_name, "Model": "TensorFlow Decision Forests",
+#                  "Train_R2": train_r2, "Validation_R2": valid_r2, "RMSE": RMSE,
+#                  "Hyperparameters": model.predefined_hyperparameters()})
 
-    # Hyperparameters to optimize
-    tuner.choice("max_depth", [4, 5, 7, 16, 32])
-    tuner.choice("num_trees", [50, 100, 200, 500])
-
-    print(tuner.train_config())
-
-    model = tfdf.keras.RandomForestModel(tuner=tuner, task=tfdf.keras.Task.REGRESSION,
-                                         bootstrap_training_dataset=True,
-                                         bootstrap_size_ratio=1.0,
-                                         categorical_algorithm='CART',  # RANDOM
-                                         growing_strategy='LOCAL',  # BEST_FIRST_GLOBAL
-                                         honest=False,
-                                         min_examples=1,
-                                         missing_value_policy='GLOBAL_IMPUTATION',
-                                         num_candidate_attributes=0,
-                                         random_seed=SEED,
-                                         winner_take_all=True,
-                                         verbose=2
-                                         )
-
-    model.compile(metrics=["mse"])
-
-    model.fit(x=train_ds)
-
-    model.evaluate(x=train_ds)
-
-    print(model.summary())
-    print()
-
-    print("TensorFlow Decision Forests Results: -------------------")
-    calculate_metrics(model, train_ds_pd, valid_ds_pd)
-
-    # tfdf.model_plotter.plot_model(model, tree_idx=0, max_depth=None)
-    # plt.show()
-
-    logs = model.make_inspector().training_logs()
-    plt.plot([log.num_trees for log in logs], [log.evaluation.rmse for log in logs])
-    plt.xlabel("Number of trees")
-    plt.ylabel("RMSE (out-of-bag)")
-    plt.show()
-
-    # Variable importance
-    inspector = model.make_inspector()
-    inspector.evaluation()
-
-    print(f"Available variable importance:")
-    for importance in inspector.variable_importances().keys():
-        print("\t", importance)
-    print()
-
-    inspector = model.make_inspector()
-    print(inspector.evaluation())
-
-    print(inspector.variable_importances()["NUM_AS_ROOT"])
-    print()
-
-    plt.figure(figsize=(12, 4))
-
-    variable_importance_metric = "NUM_AS_ROOT"
-    variable_importances = inspector.variable_importances()[variable_importance_metric]
-
-    feature_names = [vi[0].name for vi in variable_importances]
-    feature_importances = [vi[1] for vi in variable_importances]
-    feature_ranks = range(len(feature_names))
-
-    bar = plt.barh(feature_ranks, feature_importances, label=[str(x) for x in feature_ranks])
-    plt.yticks(feature_ranks, feature_names)
-    plt.gca().invert_yaxis()
-
-    # Label each bar with values
-    for importance, patch in zip(feature_importances, bar.patches):
-        plt.text(patch.get_x() + patch.get_width(), patch.get_y(), f"{importance:.4f}", va="top")
-
-    plt.xlabel(variable_importance_metric)
-    plt.title("NUM AS ROOT of the class 1 vs the others")
-    plt.tight_layout()
-    plt.show()
-
-    train_r2, valid_r2, RMSE = calculate_metrics(model, train_ds_pd, valid_ds_pd, label)
-
-    # exp_logger.save({"Id": exp_name, "Model": "TensorFlow Decision Forests",
-    #                  "Train_R2": train_r2, "Validation_R2": valid_r2, "RMSE": RMSE,
-    #                  "Hyperparameters": model.predefined_hyperparameters()})
-
-    # model.save("./saved_models/")
+# model.save("./saved_models/")
 
 
-def sklearndf_random_forest(data, valid_ds_pd, test, ids, exp_name):
-    # Random Forest with scikit-learn
-
-    print("SKLearn Random Forest Regressor Results: -------------------")
+def sklearn_random_forest(data, valid_ds_pd, test, ids, exp_name, SEED, tune=False):
+    print("SKLearn Random Forest Regressor: -------------------")
 
     x_train = np.array(data)
     y_train = data['SalePrice']
@@ -193,11 +186,60 @@ def sklearndf_random_forest(data, valid_ds_pd, test, ids, exp_name):
     x_test = np.array(valid_ds_pd)
     y_test = valid_ds_pd['SalePrice']
 
-    rf_reg = RandomForestRegressor(n_estimators=750, random_state=SEED)
-    rf_reg.fit(x_train, y_train)
+    if not tune:
 
-    y_pred_train = rf_reg.predict(x_train)
-    y_pred_test = rf_reg.predict(x_test)
+        rf = RandomForestRegressor(n_estimators=750,
+                                   max_depth=16,
+                                   criterion='friedman_mse',
+                                   min_samples_split=5,
+                                   min_samples_leaf=5,
+                                   max_features=1,
+                                   bootstrap=True,
+                                   max_samples=0.925,
+                                   oob_score=True,
+                                   n_jobs=5,
+                                   random_state=SEED,
+                                   verbose=1
+                                   )
+        rf.fit(x_train, y_train)
+
+    else:
+
+        criterion = ["squared_error", "absolute_error", "friedman_mse", "poisson"]
+        n_estimators = [int(x) for x in np.linspace(start=500, stop=1500, num=20)]
+        max_features = ['auto', 'sqrt', None]
+        max_depth = [int(x) for x in np.linspace(10, 20, num=5)]
+        min_samples_split = [2, 5, 10]
+        min_samples_leaf = [1, 2, 4]
+        bootstrap = [True, False]
+        max_samples = [0.9, 0.925, 0.95, 0.975, 1.0]
+        oob_score = [True, False]
+
+        random_grid = {'criterion': criterion,
+                       'n_estimators': n_estimators,
+                       'max_features': max_features,
+                       'max_depth': max_depth,
+                       'min_samples_split': min_samples_split,
+                       'min_samples_leaf': min_samples_leaf,
+                       'bootstrap': bootstrap,
+                       'max_samples': max_samples,
+                       'oob_score': oob_score}
+
+        rfr = RandomForestRegressor()
+        rf = RandomizedSearchCV(estimator=rfr,
+                                param_distributions=random_grid,
+                                n_iter=1000,
+                                cv=5,
+                                verbose=2,
+                                random_state=SEED,
+                                n_jobs=-1)
+
+        search = rf.fit(x_train, y_train)
+
+        print(search.best_params_)
+
+    y_pred_train = rf.predict(x_train)
+    y_pred_test = rf.predict(x_test)
 
     train_r2 = r2_score(y_train, y_pred_train)
     test_r2 = r2_score(y_test, y_pred_test)
@@ -212,7 +254,7 @@ def sklearndf_random_forest(data, valid_ds_pd, test, ids, exp_name):
     print(f'Test Mean Absolute Error (MAE): {test_mae:.2f}')
 
 
-def yggdrassil_random_forest(train_ds_pd, valid_ds_pd, test, ids, exp_name, tune=False):
+def yggdrassil_random_forest(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, tune=False):
     if not tune:
 
         # Best found hyperparameters
@@ -235,7 +277,6 @@ def yggdrassil_random_forest(train_ds_pd, valid_ds_pd, test, ids, exp_name, tune
         model = learner.train(ds=train_ds_pd, verbose=2)
 
         print(model.describe())
-        # print(model)
 
         evaluation = model.evaluate(valid_ds_pd)
 
@@ -255,8 +296,7 @@ def yggdrassil_random_forest(train_ds_pd, valid_ds_pd, test, ids, exp_name, tune
         # model.plot_tree()
 
         print("Benchmark Results: -------------------")
-        # print(model.benchmark(valid_ds_pd))
-        # print(model.to_cpp())
+        print(model.benchmark(valid_ds_pd))
 
         # model.save("./HousePrices/saved_models/best_hyp_model_" + exp_name)
 
