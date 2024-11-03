@@ -27,12 +27,11 @@ warnings.filterwarnings(action="ignore")
 pd.options.display.max_seq_items = 8000
 pd.options.display.max_rows = 8000
 
-
 SEED = 47612
 exp_logger = ExperimentLogger('HousePrices/submissions/experiment_aggregate.csv')
 
-def calculate_metrics(model, train_ds_pd, valid_ds_pd, label='SalePrice'):
 
+def calculate_metrics(model, train_ds_pd, valid_ds_pd, label='SalePrice'):
     train_predictions = model.predict(train_ds_pd)
     for i in range(10):
         print(f"Train Prediction: {train_predictions[i]}, SalePrice: {train_ds_pd[label].iloc[i]}")
@@ -59,8 +58,8 @@ def calculate_metrics(model, train_ds_pd, valid_ds_pd, label='SalePrice'):
 
     return train_r2, valid_r2, RMSE
 
-def make_submission(model, test_data, ids, exp_name='experiment'):
 
+def make_submission(model, test_data, ids, exp_name='experiment'):
     # X_test = df_test.drop(, axis=1)
 
     # test_data = test_data.fillna(test_data.mean())
@@ -83,8 +82,7 @@ def make_submission(model, test_data, ids, exp_name='experiment'):
     print(sample_submission_df.head())
 
 
-def tf_decision_forests(train_ds_pd, valid_ds_pd, test, ids, exp_name):
-
+def tf_decision_forests(train_ds_pd, valid_ds_pd):
     # Random Forest regression with TensorFlow Decision Forests
 
     label = 'SalePrice'
@@ -97,7 +95,7 @@ def tf_decision_forests(train_ds_pd, valid_ds_pd, test, ids, exp_name):
                                                      max_num_classes=700)
     tuner = tfdf.tuner.RandomSearch(num_trials=20, trial_num_threads=3)
 
-    # Hyperparameters to optimize.
+    # Hyperparameters to optimize
     tuner.choice("max_depth", [4, 5, 7, 16, 32])
     tuner.choice("num_trees", [50, 100, 200, 500])
 
@@ -106,17 +104,17 @@ def tf_decision_forests(train_ds_pd, valid_ds_pd, test, ids, exp_name):
     model = tfdf.keras.RandomForestModel(tuner=tuner, task=tfdf.keras.Task.REGRESSION,
                                          bootstrap_training_dataset=True,
                                          bootstrap_size_ratio=1.0,
-                                         categorical_algorithm='CART', # RANDOM
-                                         growing_strategy='LOCAL', # BEST_FIRST_GLOBAL
+                                         categorical_algorithm='CART',  # RANDOM
+                                         growing_strategy='LOCAL',  # BEST_FIRST_GLOBAL
                                          honest=False,
                                          min_examples=1,
                                          missing_value_policy='GLOBAL_IMPUTATION',
                                          num_candidate_attributes=0,
                                          random_seed=SEED,
                                          winner_take_all=True,
+                                         verbose=2
                                          )
 
-    model = tfdf.keras.RandomForestModel(task=tfdf.keras.Task.REGRESSION, verbose=2)
     model.compile(metrics=["mse"])
 
     model.fit(x=train_ds)
@@ -138,12 +136,11 @@ def tf_decision_forests(train_ds_pd, valid_ds_pd, test, ids, exp_name):
     plt.ylabel("RMSE (out-of-bag)")
     plt.show()
 
-
-    # Variable importances
+    # Variable importance
     inspector = model.make_inspector()
     inspector.evaluation()
 
-    print(f"Available variable importances:")
+    print(f"Available variable importance:")
     for importance in inspector.variable_importances().keys():
         print("\t", importance)
     print()
@@ -184,8 +181,8 @@ def tf_decision_forests(train_ds_pd, valid_ds_pd, test, ids, exp_name):
 
     # model.save("./saved_models/")
 
-def sklearndf_random_forest(data, valid_ds_pd, test, ids, exp_name):
 
+def sklearndf_random_forest(data, valid_ds_pd, test, ids, exp_name):
     # Random Forest with scikit-learn
 
     print("SKLearn Random Forest Regressor Results: -------------------")
@@ -216,7 +213,6 @@ def sklearndf_random_forest(data, valid_ds_pd, test, ids, exp_name):
 
 
 def yggdrassil_random_forest(train_ds_pd, valid_ds_pd, test, ids, exp_name, tune=False):
-
     if not tune:
 
         # Best found hyperparameters
@@ -355,7 +351,6 @@ def yggdrassil_random_forest(train_ds_pd, valid_ds_pd, test, ids, exp_name, tune
 
 
 def tf_neural_network(train_ds_pd, valid_ds_pd, test, ids, exp_name, submit=False):
-
     # Neural Network with TensorFlow
 
     device = "GPU" if tf.config.list_physical_devices('GPU') else "CPU"
@@ -402,7 +397,6 @@ def tf_neural_network(train_ds_pd, valid_ds_pd, test, ids, exp_name, submit=Fals
                 self.hidden_layers.append(tf.keras.layers.Dense(1024, activation=activation_func))
                 self.hidden_layers.append(tf.keras.layers.Dropout(0.2))
                 self.hidden_layers.append(tf.keras.layers.BatchNormalization())
-
 
             self.additional_layers = []
             for i in range(2):
@@ -513,9 +507,6 @@ def tf_neural_network(train_ds_pd, valid_ds_pd, test, ids, exp_name, submit=Fals
                                         f"Batch Size: {batch_size}, "
                                         f"Activation Function: {activation_func}, "
                                         f"Optimizer: Adam, Learning Rate: {learning_rate}, Loss: MSE, "
-                     # f"Layers: {str(len(model.hidden_layers))} * {len(model.hidden_layers[0])} + {str(len(model.additional_layers))} * {len(model.additional_layers[0])}, "
                                         f"Dropout: 0.2"})
 
     make_submission(model, test, ids, exp_name)
-
-
