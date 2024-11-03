@@ -1,4 +1,3 @@
-
 import time
 from datetime import datetime
 
@@ -13,8 +12,8 @@ from sklearn.impute import SimpleImputer
 from sklearn.ensemble import RandomForestRegressor, IsolationForest
 
 import tensorflow as tf
-import tensorflow_decision_forests as tfdf
-
+# import tensorflow_decision_forests as tfdf
+#
 import ydf
 
 import seaborn as sns
@@ -25,14 +24,9 @@ from ExperimentLogger import ExperimentLogger
 import warnings
 
 from HousePrices.ensemble_models import ensemble_model
-from HousePrices.models import tf_decision_forests, sklearndf_random_forest, yggdrassil_random_forest, tf_neural_network
+from HousePrices.models import yggdrassil_random_forest, tf_neural_network, sklearn_random_forest
 
-warnings.filterwarnings(action="ignore")
-pd.options.display.max_seq_items = 8000
-pd.options.display.max_rows = 8000
-
-
-SEED = 476
+# from HousePrices.models import tf_decision_forests
 
 
 def encode_data(data):
@@ -47,7 +41,6 @@ def encode_data(data):
                     'BsmtFinType1', 'BsmtFinType2', 'HeatingQC', 'KitchenQual', 'Functional',
                     'FireplaceQu', 'GarageFinish', 'GarageQual', 'GarageCond', 'PavedDrive',
                     'PoolQC', 'Fence']
-
 
     for col in lab_enc_cols:
         data[col] = label_encoder.fit_transform(data[col])
@@ -90,8 +83,6 @@ def encode_data(data):
 
 
 def preprocess_data(train, test):
-
-
     # Outliers
     train.drop(train[(train['OverallQual'] < 5) & (train['SalePrice'] > 200000)].index, inplace=True)
     train.drop(train[(train['GrLivArea'] > 4500) & (train['SalePrice'] < 300000)].index, inplace=True)
@@ -213,8 +204,10 @@ def preprocess_data(train, test):
 
     return train, test
 
+
 def outlier_test(data):
     """https://www.kaggle.com/code/nareshbhat/outlier-the-silent-killer"""
+
     def grubbs_test(x):
 
         n = len(x)
@@ -229,11 +222,12 @@ def outlier_test(data):
 
         if g_critical > g_calculated:
             print(
-                "From grubbs_test we observe that calculated value is lesser than critical value, Accept null hypothesis and conclude that there is no outliers\n")
+                "From grubbs_test we observe that calculated value is lesser than critical value, "
+                "Accept null hypothesis and conclude that there is no outliers\n")
         else:
             print(
-                "From grubbs_test we observe that calculated value is greater than critical value, Reject null hypothesis and conclude that there is an outliers\n")
-
+                "From grubbs_test we observe that calculated value is greater than critical value, "
+                "Reject null hypothesis and conclude that there is an outliers\n")
 
     def z_score_outlier(df):
         out = []
@@ -290,23 +284,17 @@ def outlier_test(data):
         print(data['cluster'].value_counts().sort_values(ascending=False))
 
     def iso_outliers(df):
-        iso = IsolationForest(behaviour='new', random_state=1, contamination='auto')
+        iso = IsolationForest(random_state=1, contamination='auto')
         preds = iso.fit_predict(df.values.reshape(-1, 1))
         data = pd.DataFrame()
         data['cluster'] = preds
         print(data['cluster'].value_counts().sort_values(ascending=False))
 
-
     print("Outlier detection: -------------------")
 
 
-
-
-
 def explore_data(data, plot=False, test=False):
-
     outlier_test(data)
-
 
     if plot:
         # plt.figure(figsize=(9, 8))
@@ -314,19 +302,19 @@ def explore_data(data, plot=False, test=False):
         # plt.show()
 
         # Most important features (according to previous analysis)
-        num_cols = ['GrLivArea',  'TotalBsmtSF',  'YearBuilt']
+        num_cols = ['GrLivArea', 'TotalBsmtSF', 'YearBuilt']
         num_sec_cols = ['GarageArea', 'BsmtFinSF1', 'LotArea', '2ndFlrSF', 'FullBath', '1stFlrSF'
-                    'YearRemodAdd']
+                                                                                       'YearRemodAdd']
 
-        cat_cols = ['OverallQual','GarageCars', 'ExterQual',]
+        cat_cols = ['OverallQual', 'GarageCars', 'ExterQual', ]
 
         sns.set()
         sns.pairplot(data[num_cols], size=2.5)
         plt.show()
 
         for col in num_cols:
-            col_data =  pd.concat([data['SalePrice'], data[col]], axis=1)
-            col_data.plot.scatter(x=col, y='SalePrice', ylim=(0,800000));
+            col_data = pd.concat([data['SalePrice'], data[col]], axis=1)
+            col_data.plot.scatter(x=col, y='SalePrice', ylim=(0, 800000));
             plt.show()
 
         for col in cat_cols:
@@ -376,28 +364,37 @@ def explore_data(data, plot=False, test=False):
         print("Kurtosis: %f" % data['SalePrice'].kurt())
 
 
-class HousePricesRegression:
+def split_dataset(dataset, test_ratio=0.15):
+    test_indices = np.random.rand(len(dataset)) < test_ratio
+    return dataset[~test_indices], dataset[test_indices]
 
-    def __init__(self, algorithm, tune=False):
 
-        self.algorithm = algorithm
-        self.tune = tune
+def set_env_variables(SEED):
 
-        np.random.seed(SEED)
-        tf.random.set_seed(SEED)
+    warnings.filterwarnings(action="ignore")
+
+    pd.options.display.max_seq_items = 8000
+    pd.options.display.max_rows = 8000
+
+    np.random.seed(SEED)
+    tf.random.set_seed(SEED)
+
+    if not tf.executing_eagerly():
+        tf.compat.v1.reset_default_graph()
+
+
+class HousePricesRegressionEnv:
+
+    def __init__(self, SEED):
+
+        set_env_variables(SEED)
 
         print("TensorFlow v" + tf.__version__)
-        print("TensorFlow Decision Forests v" + tfdf.__version__)
+        # print("TensorFlow Decision Forests v" + tfdf.__version__)
 
-        # Check if TensorFlow can access the GPU
         print("Num GPUs Available: ", len(tf.config.experimental.list_physical_devices('GPU')))
 
-
-    def run(self):
-
-        # Ensure that TensorFlow is not initialized more than once
-        if not tf.executing_eagerly():
-            tf.compat.v1.reset_default_graph()
+    def run_regression(self, algorithm, SEED, submit=False, tune=False, visualize_data=False):
 
         now = datetime.now().strftime("%m.%d.%Y_%H.%M.%S")
         exp_name = "experiment_" + str(now)
@@ -412,23 +409,27 @@ class HousePricesRegression:
         # test.insert(loc=0, column='SalePrice', value=data['SalePrice'], allow_duplicates=True)
 
         # Data exploration ###########################################
-        # explore_data(data, plot=True)
-        # explore_data(test, plot=False, test=True)
 
-        # sns.heatmap(data.isnull(), cmap='viridis')
-        # plt.show()
+        if visualize_data:
+            print("Data exploration before preprocessing: -------------------")
+            explore_data(data, plot=True)
+            explore_data(test, plot=False, test=True)
 
+            sns.heatmap(data.isnull(), cmap='viridis')
+            plt.show()
 
         # Data preprocessing ###########################################
-        print("Preprocessed data: -------------------")
+        print("Preprocessing data: -------------------")
 
         data, test = preprocess_data(data, test)
         data = pd.DataFrame(data, columns=data.columns)
 
-        # explore_data(data, plot=True)
+        if visualize_data:
+            print("Data exploration after preprocessing: -------------------")
+            explore_data(data, plot=True)
 
-        # sns.heatmap(data.isnull(), cmap='viridis')
-        # plt.show()
+            sns.heatmap(data.isnull(), cmap='viridis')
+            plt.show()
 
         # Univariate analysis
 
@@ -446,34 +447,44 @@ class HousePricesRegression:
         # data = data.drop(data[data['Id'] == 1299].index)
         # data = data.drop(data[data['Id'] == 524].index)
 
-
-        # Split the data to train and validation #############################################
-        def split_dataset(dataset, test_ratio=0.15):
-            test_indices = np.random.rand(len(dataset)) < test_ratio
-            return dataset[~test_indices], dataset[test_indices]
-
         train_ds_pd, valid_ds_pd = split_dataset(data)
         print("{} examples in training, {} examples in testing.".format(
             len(train_ds_pd), len(valid_ds_pd)))
 
-        vds = ydf.create_vertical_dataset(train_ds_pd, include_all_columns=True)
-        print(vds.memory_usage())
+        if visualize_data:
+            vds = ydf.create_vertical_dataset(data, include_all_columns=True)
+            print(vds.memory_usage())
 
+        # Model training ############################################################
 
-        # Train the model #############################################
-        match self.algorithm:
+        # match algorithm:
+        #
+        #     case 'tfdf':
+        #         tf_decision_forests(train_ds_pd, valid_ds_pd, test, ids, exp_name)
+        #     case 'sklearndf':
+        #         sklearndf_random_forest(data, valid_ds_pd, test, ids, exp_name)
+        #     case 'yggdf':
+        #         yggdrassil_random_forest(train_ds_pd, valid_ds_pd, test, ids, exp_name, tune=self.tune)
+        #     case 'ensemble':
+        #         ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name)
+        #     case 'NN':
+        #         tf_neural_network(train_ds_pd, valid_ds_pd, test, ids, exp_name)
+        #     case _:
+        #         print("Invalid algorithm.")
 
-            case 'tfdf':
-                tf_decision_forests(train_ds_pd, valid_ds_pd, test, ids, exp_name)
-            case 'sklearndf':
-                sklearndf_random_forest(data, valid_ds_pd, test, ids, exp_name)
-            case 'yggdf':
-                yggdrassil_random_forest(train_ds_pd, valid_ds_pd, test, ids, exp_name, tune=self.tune)
-            case 'ensemble':
-                ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name)
-            case 'NN':
-                tf_neural_network(train_ds_pd, valid_ds_pd, test, ids, exp_name)
-            case _:
-                print("Invalid algorithm.")
+        if algorithm == 'tfdf':
+            tf_decision_forests(train_ds_pd, valid_ds_pd, test, ids, exp_name)
+        elif algorithm == 'sklearn_rf':
+            sklearn_random_forest(data, valid_ds_pd, test, ids, exp_name, SEED, tune=tune)
+        elif algorithm == 'yggdf':
+            yggdrassil_random_forest(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, tune=tune)
+        elif algorithm == 'ensemble':
+            ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED)
+        elif algorithm == 'NN':
+            tf_neural_network(train_ds_pd, valid_ds_pd, test, ids, exp_name)
+        else:
+            print("Invalid algorithm.")
 
-
+        if submit:
+            exp_logger.log_experiment(exp_name, algorithm, SEED)
+            ...

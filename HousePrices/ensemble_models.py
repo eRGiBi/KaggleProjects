@@ -19,6 +19,8 @@ from xgboost import XGBRegressor
 
 import seaborn as sns
 
+from HousePrices.YggdrassilRandomForest import YggdrassilRandomForest
+
 
 def calculate_metrics(model, train_ds_pd, valid_ds_pd, label='SalePrice'):
     train_ds_pd = train_ds_pd.drop([label], axis=1)
@@ -51,7 +53,7 @@ def calculate_metrics(model, train_ds_pd, valid_ds_pd, label='SalePrice'):
     return train_r2, valid_r2, RMSE
 
 
-def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name):
+def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476):
     """
         Ensemble model using StackingCVRegressor from mlxtend library.
 
@@ -62,7 +64,7 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name):
     train_labels = train_ds_pd['SalePrice']
     X = train_ds_pd.drop(['SalePrice'], axis=1)
 
-    kf = KFold(n_splits=12, random_state=42, shuffle=True)
+    kf = KFold(n_splits=12, random_state=SEED, shuffle=True)
 
     def rmsle(y, y_pred):
         return np.sqrt(mean_squared_error(y, y_pred))
@@ -84,7 +86,7 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name):
                              feature_fraction_seed=8,
                              min_sum_hessian_in_leaf=11,
                              verbose=-1,
-                             random_state=42)
+                             random_state=SEED)
 
     xgboost = XGBRegressor(learning_rate=0.01,
                            n_estimators=6000,
@@ -93,20 +95,17 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name):
                            gamma=0.6,
                            subsample=0.7,
                            colsample_bytree=0.7,
-                           objective='reg:linear',
+                           objective='reg:squarederror',
                            nthread=-1,
                            scale_pos_weight=1,
                            seed=27,
                            reg_alpha=0.00006,
-                           random_state=42)
+                           random_state=SEED)
 
     # Ridge Regressor
     ridge_alphas = [1e-15, 1e-10, 1e-8, 9e-4, 7e-4, 5e-4, 3e-4, 1e-4, 1e-3, 5e-2, 1e-2, 0.1, 0.3, 1, 3, 5, 10, 15, 18,
                     20, 30, 50, 75, 100]
     ridge = make_pipeline(RobustScaler(), RidgeCV(alphas=ridge_alphas, cv=kf))
-
-    # Support Vector Regressor
-    # svr = make_pipeline(RobustScaler(), SVR(C=20, epsilon=0.008, gamma=0.0003))
 
     # Gradient Boosting Regressor
     gbr = GradientBoostingRegressor(n_estimators=6000,
@@ -116,27 +115,34 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name):
                                     min_samples_leaf=15,
                                     min_samples_split=10,
                                     loss='huber',
-                                    random_state=42)
+                                    random_state=SEED)
 
     # Random Forest Regressor
-    rf = RandomForestRegressor(n_estimators=1200,
-                               max_depth=15,
+    rf = RandomForestRegressor(n_estimators=750,
+                               max_depth=16,
+                               criterion='friedman_mse',
                                min_samples_split=5,
                                min_samples_leaf=5,
-                               max_features=None,
+                               max_features=1,
+                               bootstrap=True,
+                               max_samples=0.925,
                                oob_score=True,
-                               random_state=42
+                               n_jobs=5,
+                               random_state=SEED,
+                               verbose=1
                                )
 
-    # nn_model = tf.keras.models.load_model('HousePrices/saved_models/nn_model_experiment_08.20.2024_22.39.52.h5')
+    # nn_model = tf.keras.models.load_model('')
 
     stack_gen = StackingCVRegressor(regressors=(xgboost, lightgbm,
                                                 # svr,
                                                 # nn_model,
-
                                                 ridge, gbr, rf),
                                     meta_regressor=xgboost,
-                                    use_features_in_secondary=True
+                                    cv=5,
+                                    use_features_in_secondary=True,
+                                    n_jobs=5,
+                                    verbose=1
                                     )
 
     scores = {}
@@ -176,10 +182,6 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name):
     xgb_model_full_data = xgboost.fit(X, train_labels)
     # calculate_metrics(xgb_model_full_data, train_ds_pd, valid_ds_pd)
 
-    print('Svr')
-    # svr_model_full_data = svr.fit(X, train_labels)
-    # calculate_metrics(svr_model_full_data, train_ds_pd, valid_ds_pd)
-
     print('Ridge')
     ridge_model_full_data = ridge.fit(X, train_labels)
     # calculate_metrics(ridge_model_full_data, train_ds_pd, valid_ds_pd)
@@ -190,7 +192,6 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name):
 
     print('GradientBoosting')
     gbr_model_full_data = gbr.fit(X, train_labels)
-
     # calculate_metrics(gbr_model_full_data, train_ds_pd, valid_ds_pd)
 
     def blended_predictions(X):

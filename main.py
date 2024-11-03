@@ -1,11 +1,12 @@
-from HousePrices.HousePrices import HousePricesRegression
+from HousePrices.HousePrices import HousePricesRegressionEnv
 
 if __name__ == '__main__':
 
+    SEED = 476
+
     # TODO: ArgParser
 
-    HousePricesRegression(algorithm="NN", tune=False).run()
-    # HousePricesRegression(algorithm="yggdf", tune=True, submit=True).run()
-    # HousePricesRegression(algorithm="ensemble", tune=True).run()
-
-
+    # HousePricesRegressionEnv(SEED=SEED).run_regression(algorithm="NN", submit=False, SEED=SEED)
+    # HousePricesRegressionEnv(SEED=SEED).run_regression(algorithm="yggdf", tune=False, submit=False, SEED=SEED)
+    HousePricesRegressionEnv(SEED=SEED).run_regression(algorithm="sklearn_rf", tune=True, submit=False, SEED=SEED)
+    # HousePricesRegressionEnv(SEED=SEED).run_regression(algorithm="ensemble", submit=False, SEED=SEED)
