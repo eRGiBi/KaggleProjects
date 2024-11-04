@@ -12,8 +12,8 @@ from sklearn.impute import SimpleImputer
 from sklearn.ensemble import RandomForestRegressor, IsolationForest
 
 import tensorflow as tf
-# import tensorflow_decision_forests as tfdf
-#
+import tensorflow_decision_forests as tfdf
+
 import ydf
 
 import seaborn as sns
@@ -26,7 +26,7 @@ import warnings
 from HousePrices.ensemble_models import ensemble_model
 from HousePrices.models import yggdrassil_random_forest, tf_neural_network, sklearn_random_forest
 
-# from HousePrices.models import tf_decision_forests
+from HousePrices.models import tf_decision_forests
 
 
 def encode_data(data):
@@ -390,7 +390,7 @@ class HousePricesRegressionEnv:
         set_env_variables(SEED)
 
         print("TensorFlow v" + tf.__version__)
-        # print("TensorFlow Decision Forests v" + tfdf.__version__)
+        print("TensorFlow Decision Forests v" + tfdf.__version__)
 
         print("Num GPUs Available: ", len(tf.config.experimental.list_physical_devices('GPU')))
 
@@ -473,18 +473,14 @@ class HousePricesRegressionEnv:
         #         print("Invalid algorithm.")
 
         if algorithm == 'tfdf':
-            tf_decision_forests(train_ds_pd, valid_ds_pd, test, ids, exp_name)
+            tf_decision_forests(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED)
         elif algorithm == 'sklearn_rf':
             sklearn_random_forest(data, valid_ds_pd, test, ids, exp_name, SEED, tune=tune)
         elif algorithm == 'yggdf':
-            yggdrassil_random_forest(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, tune=tune)
+            yggdrassil_random_forest(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit, tune=tune)
         elif algorithm == 'ensemble':
-            ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED)
+            ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit)
         elif algorithm == 'NN':
             tf_neural_network(train_ds_pd, valid_ds_pd, test, ids, exp_name)
         else:
             print("Invalid algorithm.")
-
-        if submit:
-            exp_logger.log_experiment(exp_name, algorithm, SEED)
-            ...
