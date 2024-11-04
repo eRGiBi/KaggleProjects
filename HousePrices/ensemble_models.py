@@ -19,8 +19,6 @@ from xgboost import XGBRegressor
 
 import seaborn as sns
 
-from HousePrices.YggdrassilRandomForest import YggdrassilRandomForest
-
 
 def calculate_metrics(model, train_ds_pd, valid_ds_pd, label='SalePrice'):
     train_ds_pd = train_ds_pd.drop([label], axis=1)
@@ -53,7 +51,7 @@ def calculate_metrics(model, train_ds_pd, valid_ds_pd, label='SalePrice'):
     return train_r2, valid_r2, RMSE
 
 
-def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476):
+def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, submit=False):
     """
         Ensemble model using StackingCVRegressor from mlxtend library.
 
@@ -66,14 +64,10 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476):
 
     kf = KFold(n_splits=12, random_state=SEED, shuffle=True)
 
-    def rmsle(y, y_pred):
-        return np.sqrt(mean_squared_error(y, y_pred))
-
     def cv_rmse(model, X=X):
         rmse = np.sqrt(-cross_val_score(model, X, train_labels, scoring="neg_mean_squared_error", cv=kf))
-        return (rmse)
+        return rmse
 
-    # Light Gradient Boosting
     lightgbm = LGBMRegressor(objective='regression',
                              num_leaves=6,
                              learning_rate=0.01,
@@ -98,16 +92,15 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476):
                            objective='reg:squarederror',
                            nthread=-1,
                            scale_pos_weight=1,
-                           seed=27,
+                           seed=SEED + 100,
                            reg_alpha=0.00006,
                            random_state=SEED)
 
-    # Ridge Regressor
     ridge_alphas = [1e-15, 1e-10, 1e-8, 9e-4, 7e-4, 5e-4, 3e-4, 1e-4, 1e-3, 5e-2, 1e-2, 0.1, 0.3, 1, 3, 5, 10, 15, 18,
                     20, 30, 50, 75, 100]
     ridge = make_pipeline(RobustScaler(), RidgeCV(alphas=ridge_alphas, cv=kf))
 
-    # Gradient Boosting Regressor
+    # Sklearn Gradient Boosting
     gbr = GradientBoostingRegressor(n_estimators=6000,
                                     learning_rate=0.01,
                                     max_depth=4,
@@ -115,35 +108,32 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476):
                                     min_samples_leaf=15,
                                     min_samples_split=10,
                                     loss='huber',
-                                    random_state=SEED)
+                                    random_state=SEED,
+                                    verbose=1)
 
-    # Random Forest Regressor
-    rf = RandomForestRegressor(n_estimators=750,
-                               max_depth=16,
-                               criterion='friedman_mse',
-                               min_samples_split=5,
-                               min_samples_leaf=5,
-                               max_features=1,
+    rf = RandomForestRegressor(n_estimators=1078,
+                               max_depth=12,
+                               criterion='squared_error',
+                               min_samples_split=2,
+                               min_samples_leaf=1,
+                               max_features=None,
                                bootstrap=True,
-                               max_samples=0.925,
-                               oob_score=True,
+                               max_samples=1.0,
+                               oob_score=False,
                                n_jobs=5,
                                random_state=SEED,
-                               verbose=1
-                               )
+                               verbose=0)
 
     # nn_model = tf.keras.models.load_model('')
 
     stack_gen = StackingCVRegressor(regressors=(xgboost, lightgbm,
-                                                # svr,
                                                 # nn_model,
                                                 ridge, gbr, rf),
                                     meta_regressor=xgboost,
                                     cv=5,
                                     use_features_in_secondary=True,
                                     n_jobs=5,
-                                    verbose=1
-                                    )
+                                    verbose=1)
 
     scores = {}
 
@@ -154,10 +144,6 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476):
     score = cv_rmse(xgboost)
     print("xgboost: {:.4f} ({:.4f})".format(score.mean(), score.std()))
     scores['xgb'] = (score.mean(), score.std())
-
-    # score = cv_rmse(svr)
-    # print("SVR: {:.4f} ({:.4f})".format(score.mean(), score.std()))
-    # scores['svr'] = (score.mean(), score.std())
 
     score = cv_rmse(ridge)
     print("ridge: {:.4f} ({:.4f})".format(score.mean(), score.std()))
@@ -192,6 +178,7 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476):
 
     print('GradientBoosting')
     gbr_model_full_data = gbr.fit(X, train_labels)
+
     # calculate_metrics(gbr_model_full_data, train_ds_pd, valid_ds_pd)
 
     def blended_predictions(X):
@@ -205,21 +192,26 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476):
                 (0.35 * stack_gen_model.predict(np.array(X)))
                 )
 
-    blended_score = rmsle(train_labels, blended_predictions(X))
+    blended_score = np.sqrt(mean_squared_error(train_labels, blended_predictions(X)))
     scores['blended'] = (blended_score, 0)
-    print('RMSLE score on the training dataset:')
+    print('Root Mean Squared Logarithmic Error (RMSLE) score on the training dataset:')
     print(blended_score)
 
+    validation_predictions = blended_predictions(valid_ds_pd.drop(['SalePrice'], axis=1))
+    validation_score = np.sqrt(mean_squared_error(valid_ds_pd['SalePrice'], validation_predictions))
+    print('Root Mean Squared Logarithmic Error (RMSLE) score on the validation dataset:')
+    print(validation_score)
+
+    # Plotting scores of the models
     sns.set_style("white")
     fig = plt.figure(figsize=(24, 12))
-
     ax = sns.pointplot(x=list(scores.keys()), y=[score for score, _ in scores.values()],
                        # markers=['o'],
                        # linestyles=['-']
                        )
     for i, score in enumerate(scores.values()):
         ax.text(i,
-                score[0] + 0.002,
+                score[0],
                 '{:.6f}'.format(score[0]),
                 horizontalalignment='left',
                 size='large',
@@ -227,28 +219,27 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476):
                 weight='semibold'
                 )
 
-    plt.ylabel('RMSE', size=20, labelpad=12.5)
-    plt.xlabel('Model', size=20, labelpad=12.5)
+    plt.ylabel('Root Mean Squared Error', size=20, labelpad=12.5)
+    plt.xlabel('Model name', size=23, labelpad=12.5)
     plt.tick_params(axis='x', labelsize=13.5)
     plt.tick_params(axis='y', labelsize=12.5)
 
     plt.title('Scores of Models', size=20)
-
     plt.show()
 
     # Submission
+    if submit:
+        submission = pd.read_csv("HousePrices/data/sample_submission.csv")
 
-    submission = pd.read_csv("HousePrices/data/sample_submission.csv")
+        submission.iloc[:, 1] = np.floor((blended_predictions(test)))
 
-    submission.iloc[:, 1] = np.floor((blended_predictions(test)))
+        q1 = submission['SalePrice'].quantile(0.0045)
+        q2 = submission['SalePrice'].quantile(0.99)
+        submission['SalePrice'] = submission['SalePrice'].apply(lambda x: x if x > q1 else x * 0.77)
+        submission['SalePrice'] = submission['SalePrice'].apply(lambda x: x if x < q2 else x * 1.1)
 
-    q1 = submission['SalePrice'].quantile(0.0045)
-    q2 = submission['SalePrice'].quantile(0.99)
-    submission['SalePrice'] = submission['SalePrice'].apply(lambda x: x if x > q1 else x * 0.77)
-    submission['SalePrice'] = submission['SalePrice'].apply(lambda x: x if x < q2 else x * 1.1)
+        submission.to_csv("HousePrices/submissions/submission_" + exp_name + "_1.csv", index=False)
 
-    submission.to_csv("HousePrices/submissions/submission_" + exp_name + "_1.csv", index=False)
+        # submission['SalePrice'] *= 1.001619
 
-    submission['SalePrice'] *= 1.001619
-
-    submission.to_csv("HousePrices/submissions/submission_" + exp_name + "_2.csv", index=False)
+        submission.to_csv("HousePrices/submissions/submission_" + exp_name + "_2.csv", index=False)
