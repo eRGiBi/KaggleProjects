@@ -3,7 +3,7 @@ import pandas as pd
 import ydf
 from matplotlib import pyplot as plt
 from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
-from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.metrics import mean_squared_error, r2_score, mean_squared_log_error
 from sklearn.model_selection import cross_val_score, KFold
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import RobustScaler
@@ -68,6 +68,9 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
         rmse = np.sqrt(-cross_val_score(model, X, train_labels, scoring="neg_mean_squared_error", cv=kf))
         return rmse
 
+    def NumPyRMSLE(y_true: np.array, y_pred: np.array) -> np.float64:
+        return np.sqrt(np.mean(np.square(np.log1p(y_pred) - np.log1p(y_true))))
+
     lightgbm = LGBMRegressor(objective='regression',
                              num_leaves=6,
                              learning_rate=0.01,
@@ -96,12 +99,15 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
                            reg_alpha=0.00006,
                            random_state=SEED)
 
-    ridge_alphas = [1e-15, 1e-10, 1e-8, 9e-4, 7e-4, 5e-4, 3e-4, 1e-4, 1e-3, 5e-2, 1e-2, 0.1, 0.3, 1, 3, 5, 10, 15, 18,
-                    20, 30, 50, 75, 100]
-    ridge = make_pipeline(RobustScaler(), RidgeCV(alphas=ridge_alphas, cv=kf))
+    ridge_alphas = [1e-15, 1e-10, 1e-8, 9e-4, 7e-4, 5e-4, 3e-4, 1e-4, 1e-3, 5e-2, 1e-2, 0.1, 0.3, 1,
+                    2, 3, 5, 10, 15, 18, 20, 30, 50, 75, 100]
+    ridge = make_pipeline(RobustScaler(), RidgeCV(alphas=ridge_alphas, cv=kf,
+                                                  gcv_mode='auto',
+                                                  ))
 
     # Sklearn Gradient Boosting
     gbr = GradientBoostingRegressor(n_estimators=6000,
+                                    criterion='squared_error',
                                     learning_rate=0.01,
                                     max_depth=4,
                                     max_features='sqrt',
@@ -109,7 +115,7 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
                                     min_samples_split=10,
                                     loss='huber',
                                     random_state=SEED,
-                                    verbose=1)
+                                    verbose=0)
 
     rf = RandomForestRegressor(n_estimators=1078,
                                max_depth=12,
@@ -133,7 +139,7 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
                                     cv=5,
                                     use_features_in_secondary=True,
                                     n_jobs=5,
-                                    verbose=1)
+                                    verbose=2)
 
     scores = {}
 
@@ -150,55 +156,57 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
     scores['ridge'] = (score.mean(), score.std())
 
     score = cv_rmse(rf)
-    print("rf: {:.4f} ({:.4f})".format(score.mean(), score.std()))
+    print("Random Forest: {:.4f} ({:.4f})".format(score.mean(), score.std()))
     scores['rf'] = (score.mean(), score.std())
 
     score = cv_rmse(gbr)
     print("gbr: {:.4f} ({:.4f})".format(score.mean(), score.std()))
-    scores['gbr'] = (score.mean(), score.std())
+    scores['sklearn gradient boosting'] = (score.mean(), score.std())
 
-    print('stack_gen')
+    score = cv_rmse(stack_gen)
+    print("stack_gen: {:.4f} ({:.4f})".format(score.mean(), score.std()))
     stack_gen_model = stack_gen.fit(np.array(X), np.array(train_labels))
+    scores['stack_gen'] = (score.mean(), score.std())
 
     print('lightgbm')
-    lgb_model_full_data = lightgbm.fit(X, train_labels)
+    lgb_model = lightgbm.fit(X, train_labels,
+                             eval_set=[(valid_ds_pd.drop(['SalePrice'], axis=1), valid_ds_pd['SalePrice'])],)
     # calculate_metrics(lgb_model_full_data, train_ds_pd, valid_ds_pd)
 
     print('xgboost')
-    xgb_model_full_data = xgboost.fit(X, train_labels)
+    xgb_model = xgboost.fit(X, train_labels)
     # calculate_metrics(xgb_model_full_data, train_ds_pd, valid_ds_pd)
 
     print('Ridge')
-    ridge_model_full_data = ridge.fit(X, train_labels)
+    ridge_model = ridge.fit(X, train_labels)
     # calculate_metrics(ridge_model_full_data, train_ds_pd, valid_ds_pd)
 
     print('RandomForest')
-    rf_model_full_data = rf.fit(X, train_labels)
+    rf_model = rf.fit(X, train_labels)
     # calculate_metrics(rf_model_full_data, train_ds_pd, valid_ds_pd)
 
     print('GradientBoosting')
-    gbr_model_full_data = gbr.fit(X, train_labels)
+    gbr_model = gbr.fit(X, train_labels)
 
     # calculate_metrics(gbr_model_full_data, train_ds_pd, valid_ds_pd)
 
     def blended_predictions(X):
-        return ((0.1 * ridge_model_full_data.predict(X)) + \
-                # (0.2 * svr_model_full_data.predict(X)) + \
-                # (0.2 * nn_model.predict(X)) + \
-                (0.1 * gbr_model_full_data.predict(X)) + \
-                (0.3 * xgb_model_full_data.predict(X)) + \
-                (0.1 * lgb_model_full_data.predict(X)) + \
-                (0.05 * rf_model_full_data.predict(X)) + \
+        return ((0.05 * ridge_model.predict(X)) +
+                # (0.2 * nn_model.predict(X)) +
+                (0.1 * gbr_model.predict(X)) +
+                (0.3 * xgb_model.predict(X)) +
+                (0.1 * lgb_model.predict(X)) +
+                (0.05 * rf_model.predict(X)) +
                 (0.35 * stack_gen_model.predict(np.array(X)))
                 )
 
-    blended_score = np.sqrt(mean_squared_error(train_labels, blended_predictions(X)))
+    blended_score = cv_rmse(train_labels, blended_predictions(X))
     scores['blended'] = (blended_score, 0)
     print('Root Mean Squared Logarithmic Error (RMSLE) score on the training dataset:')
     print(blended_score)
 
     validation_predictions = blended_predictions(valid_ds_pd.drop(['SalePrice'], axis=1))
-    validation_score = np.sqrt(mean_squared_error(valid_ds_pd['SalePrice'], validation_predictions))
+    validation_score = cv_rmse(valid_ds_pd['SalePrice'], validation_predictions)
     print('Root Mean Squared Logarithmic Error (RMSLE) score on the validation dataset:')
     print(validation_score)
 
