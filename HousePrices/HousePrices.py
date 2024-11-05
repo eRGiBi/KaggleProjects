@@ -25,7 +25,6 @@ import warnings
 
 from HousePrices.ensemble_models import ensemble_model
 from HousePrices.models import yggdrassil_random_forest, tf_neural_network, sklearn_random_forest
-
 from HousePrices.models import tf_decision_forests
 
 
@@ -69,13 +68,9 @@ def encode_data(data):
 
     df_encoded = df_encoded.drop(one_hot_cols, axis=1)
 
-    # print(data['MSZoning'].head())
-    #
     # df_encoded = df_encoded.drop('MSZoning', axis=1)
 
-    # Binary encoding
-    # large number of unique categories
-
+    # Binary encoding for a large number of unique categories
     # encoder = ce.BinaryEncoder(cols=['Country'])
     # data = encoder.fit_transform(data)
 
@@ -100,11 +95,14 @@ def preprocess_data(train, test):
     all_features['MoSold'] = all_features['MoSold'].astype(float)
 
     def handle_missing(features):
-        """https://www.kaggle.com/code/lavanyashukla01/how-i-made-top-0-3-on-a-kaggle-competition#Feature-Engineering"""
+        """
+        Handles missing values.
 
-        # The data description states that NA refers to typical ('Typ') values
+        https://www.kaggle.com/code/lavanyashukla01/how-i-made-top-0-3-on-a-kaggle-competition#Feature-Engineering
+        """
+
         features['Functional'] = features['Functional'].fillna('Typ')
-        # Replace the missing values in each of the columns below with their mode
+        # Replace the missing values with mode
         features['Electrical'] = features['Electrical'].fillna("SBrkr")
         features['KitchenQual'] = features['KitchenQual'].fillna("TA")
         features['Exterior1st'] = features['Exterior1st'].fillna(features['Exterior1st'].mode()[0])
@@ -113,15 +111,11 @@ def preprocess_data(train, test):
         # features['MSZoning'] = features.groupby('MSSubClass')['MSZoning'].transform(lambda x: x.fillna(x.mode()[0]))
         # features['MSZoning'] = features['MSZoning'].fillna(features['MSZoning'].mode()[0])
 
-        # The data description stats that NA refers to "No Pool"
         features["PoolQC"] = features["PoolQC"].fillna("None")
-        # Replacing the missing values with 0, since no garage = no cars in garage
         for col in ('GarageYrBlt', 'GarageArea', 'GarageCars'):
             features[col] = features[col].fillna(0)
-        # Replacing the missing values with None
         for col in ['GarageType', 'GarageFinish', 'GarageQual', 'GarageCond']:
             features[col] = features[col].fillna('None')
-        # NaN values for these categorical basement features, means there's no basement
         for col in ('BsmtQual', 'BsmtCond', 'BsmtExposure', 'BsmtFinType1', 'BsmtFinType2'):
             features[col] = features[col].fillna('None')
 
@@ -143,8 +137,6 @@ def preprocess_data(train, test):
         features.update(features[numeric].fillna(0))
 
         return features
-
-    # Deal with missing values
 
     # missing_val_count_by_column = (data.isnull().sum())
     # print(missing_val_count_by_column[missing_val_count_by_column > 0])
@@ -335,7 +327,7 @@ def explore_data(data, plot=False, test=False):
         sns.heatmap(corrmat, vmax=.8, square=True)
         plt.show()
 
-        # SalePrice correlation matrix
+        # SalePrice cm
         k = 10
         cols = corrmat.nlargest(k, 'SalePrice')['SalePrice'].index
         cm = np.corrcoef(data[cols].values.T)
@@ -359,7 +351,6 @@ def explore_data(data, plot=False, test=False):
     print("Still Object typed columns:", object_cols)
 
     if not test:
-        # Skewness and kurtosis
         print("Skewness: %f" % data['SalePrice'].skew())
         print("Kurtosis: %f" % data['SalePrice'].kurt())
 
@@ -370,7 +361,6 @@ def split_dataset(dataset, test_ratio=0.15):
 
 
 def set_env_variables(SEED):
-
     warnings.filterwarnings(action="ignore")
 
     pd.options.display.max_seq_items = 8000
@@ -409,7 +399,6 @@ class HousePricesRegressionEnv:
         # test.insert(loc=0, column='SalePrice', value=data['SalePrice'], allow_duplicates=True)
 
         # Data exploration ###########################################
-
         if visualize_data:
             print("Data exploration before preprocessing: -------------------")
             explore_data(data, plot=True)
@@ -456,21 +445,6 @@ class HousePricesRegressionEnv:
             print(vds.memory_usage())
 
         # Model training ############################################################
-
-        # match algorithm:
-        #
-        #     case 'tfdf':
-        #         tf_decision_forests(train_ds_pd, valid_ds_pd, test, ids, exp_name)
-        #     case 'sklearndf':
-        #         sklearndf_random_forest(data, valid_ds_pd, test, ids, exp_name)
-        #     case 'yggdf':
-        #         yggdrassil_random_forest(train_ds_pd, valid_ds_pd, test, ids, exp_name, tune=self.tune)
-        #     case 'ensemble':
-        #         ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name)
-        #     case 'NN':
-        #         tf_neural_network(train_ds_pd, valid_ds_pd, test, ids, exp_name)
-        #     case _:
-        #         print("Invalid algorithm.")
 
         if algorithm == 'tfdf':
             tf_decision_forests(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED)
