@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 import numpy as np
 import pandas as pd
 
@@ -5,11 +7,13 @@ from scipy.stats import stats
 from sklearn.cluster import DBSCAN
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 # import category_encoders as ce
-from sklearn.ensemble import RandomForestRegressor, IsolationForest
+from sklearn.ensemble import RandomForestRegressor, IsolationForest, GradientBoostingRegressor
 from sklearn.model_selection import RandomizedSearchCV
+from lightgbm import LGBMRegressor
+from xgboost import XGBRegressor
 
 import tensorflow as tf
-import tensorflow_decision_forests as tfdf
+# import tensorflow_decision_forests as tfdf
 import ydf
 
 import matplotlib.pyplot as plt
@@ -20,9 +24,22 @@ from ExperimentLogger import ExperimentLogger
 exp_logger = ExperimentLogger('HousePrices/submissions/experiment_aggregate.csv')
 
 
-def calculate_metrics(model, train_ds_pd, valid_ds_pd, label='SalePrice'):
-    train_predictions = model.predict(train_ds_pd)
-    for i in range(10):
+def calculate_metrics(model, train_ds_pd, valid_ds_pd, label='SalePrice', predict_on_full_set=True):
+    """
+    Sample model prediction and ground truth comparison.
+    Calculate R-squared and RMSE for training and validation sets.
+    :param model:
+    :param train_ds_pd:
+    :param valid_ds_pd:
+    :param label:
+    :param predict_on_full_set:
+    :return:
+    """
+    train_predictions = model.predict(train_ds_pd) if predict_on_full_set else (
+        model.predict(train_ds_pd.drop(label, axis=1)))
+
+    indexes = [np.random.randint(0, len(train_ds_pd), 10)]
+    for i in indexes:
         print(f"Train Prediction: {train_predictions[i]}, SalePrice: {train_ds_pd[label].iloc[i]}")
     print()
 
@@ -33,8 +50,11 @@ def calculate_metrics(model, train_ds_pd, valid_ds_pd, label='SalePrice'):
     print(f'Train RMSE: {RMSE:.2f}')
     print()
 
-    valid_predictions = model.predict(valid_ds_pd)
-    for i in range(10):
+    valid_predictions = model.predict(valid_ds_pd) if predict_on_full_set else (
+        model.predict(valid_ds_pd.drop(label, axis=1)))
+
+    valid_indexes = [np.random.randint(0, len(valid_ds_pd), 10)]
+    for i in valid_indexes:
         print(f"Validation Prediction: {valid_predictions[i]}, SalePrice: {valid_ds_pd[label].iloc[i]}")
     print()
 
@@ -381,6 +401,33 @@ def yggdrassil_random_forest(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED
         print("Yggdrasil Submission: -------------------")
         if submit:
             make_submission(model, test, ids, exp_name)
+
+
+def gradient_booster(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit=False, tune=False):
+    print(train_ds_pd.shape)
+    train_y = train_ds_pd['SalePrice']
+    train_x = deepcopy(train_ds_pd).drop('SalePrice', axis=1)
+    print(train_x.shape)
+
+    # Sklearn Gradient Boosting
+    gbr = GradientBoostingRegressor(n_estimators=6000,
+                                    criterion='squared_error',
+                                    learning_rate=0.01,
+                                    max_depth=15,
+                                    max_features='sqrt',
+                                    min_samples_leaf=15,
+                                    min_samples_split=10,
+                                    loss='huber',
+                                    random_state=SEED,
+                                    verbose=2)
+
+    sk_gbr_model = gbr.fit(train_x, train_y)
+
+    train_r2, valid_r2, RMSE = calculate_metrics(sk_gbr_model, train_ds_pd, valid_ds_pd, predict_on_full_set=False)
+    print("SKL Gradient Boosting Regressor: -------------------")
+    print(f'Train R-squared: {train_r2 * 100:.2f}%')
+    print(f'Validation R-squared: {valid_r2 * 100:.2f}%')
+    print(f'Validation RMSE: {RMSE:.2f}')
 
 
 def tf_neural_network(train_ds_pd, valid_ds_pd, test, ids, exp_name, submit=False):

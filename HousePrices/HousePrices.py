@@ -12,7 +12,7 @@ from sklearn.impute import SimpleImputer
 from sklearn.ensemble import RandomForestRegressor, IsolationForest
 
 import tensorflow as tf
-import tensorflow_decision_forests as tfdf
+# import tensorflow_decision_forests as tfdf
 
 import ydf
 
@@ -24,8 +24,8 @@ from ExperimentLogger import ExperimentLogger
 import warnings
 
 from HousePrices.ensemble_models import ensemble_model
-from HousePrices.models import yggdrassil_random_forest, tf_neural_network, sklearn_random_forest
-from HousePrices.models import tf_decision_forests
+from HousePrices.models import yggdrassil_random_forest, tf_neural_network, sklearn_random_forest, gradient_booster
+# from HousePrices.models import tf_decision_forests
 
 
 def encode_data(data):
@@ -88,7 +88,7 @@ def preprocess_data(train, test):
     test_features = test
 
     all_features = pd.concat([train_features, test_features]).reset_index(drop=True)
-    print(all_features.shape)
+    print("Data shape:", all_features.shape)
 
     all_features['MSSubClass'] = all_features['MSSubClass'].apply(str)
     all_features['YrSold'] = all_features['YrSold'].astype(float)
@@ -96,7 +96,7 @@ def preprocess_data(train, test):
 
     def handle_missing(features):
         """
-        Handles missing values.
+        Handles missing values with different methods for each feature type.
 
         https://www.kaggle.com/code/lavanyashukla01/how-i-made-top-0-3-on-a-kaggle-competition#Feature-Engineering
         """
@@ -143,7 +143,7 @@ def preprocess_data(train, test):
 
     all_features = handle_missing(all_features)
 
-    print("Encoded data: -------------------")
+    print("Encoding data: -------------------")
     all_features = encode_data(all_features)
 
     # Impute missing values
@@ -158,20 +158,21 @@ def preprocess_data(train, test):
     # df_train = df_train.drop(df_train.loc[df_train['Electrical'].isnull()].index)
     # df_train.isnull().sum().max()
 
-    print("Missing data: -------------------")
+    print("Handling missing values: -------------------")
     total = all_features.isnull().sum().sort_values(ascending=False)
     percent = (all_features.isnull().sum() / all_features.isnull().count()).sort_values(ascending=False)
     missing_data = pd.concat([total, percent], axis=1, keys=['Total', 'Percent'])
-    print(missing_data.head(20))
+
+    # print(missing_data.head(20))
     print()
 
-    print("Recombined data: -------------------")
+    print("Recombining data: -------------------")
     train = all_features.iloc[:len(train_labels), :]
     train.insert(loc=0, column='SalePrice', value=train_labels)
     # train = pd.concat([train, train_labels], axis=1)
     test = all_features.iloc[len(train_labels):, :]
 
-    print(train.shape, test.shape)
+    print("New train and test set shape:", train.shape, test.shape)
 
     # for col in data.columns:
     #     if data[col].dtype != 'int64' and data[col].dtype != 'int32' and data[col].dtype != 'float64':
@@ -380,7 +381,7 @@ class HousePricesRegressionEnv:
         set_env_variables(SEED)
 
         print("TensorFlow v" + tf.__version__)
-        print("TensorFlow Decision Forests v" + tfdf.__version__)
+        # print("TensorFlow Decision Forests v" + tfdf.__version__)
 
         print("Num GPUs Available: ", len(tf.config.experimental.list_physical_devices('GPU')))
 
@@ -452,6 +453,8 @@ class HousePricesRegressionEnv:
             sklearn_random_forest(data, valid_ds_pd, test, ids, exp_name, SEED, tune=tune)
         elif algorithm == 'yggdf':
             yggdrassil_random_forest(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit, tune=tune)
+        elif algorithm == 'grb':
+            gradient_booster(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED)
         elif algorithm == 'ensemble':
             ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit)
         elif algorithm == 'NN':
