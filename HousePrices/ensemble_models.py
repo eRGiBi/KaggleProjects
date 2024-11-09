@@ -160,11 +160,11 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
     scores['rf'] = (score.mean(), score.std())
 
     score = cv_rmse(gbr)
-    print("gbr: {:.4f} ({:.4f})".format(score.mean(), score.std()))
-    scores['sklearn gradient boosting'] = (score.mean(), score.std())
+    print("Sklearn grb: {:.4f} ({:.4f})".format(score.mean(), score.std()))
+    scores['sklearn_gbr'] = (score.mean(), score.std())
 
     score = cv_rmse(stack_gen)
-    print("stack_gen: {:.4f} ({:.4f})".format(score.mean(), score.std()))
+    print("stacked: {:.4f} ({:.4f})".format(score.mean(), score.std()))
     stack_gen_model = stack_gen.fit(np.array(X), np.array(train_labels))
     scores['stack_gen'] = (score.mean(), score.std())
 
