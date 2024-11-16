@@ -2,15 +2,21 @@ from copy import deepcopy
 
 import numpy as np
 import pandas as pd
+import cupy as cp
 
 from scipy.stats import stats
-from sklearn.cluster import DBSCAN
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 # import category_encoders as ce
+
+from sklearn.cluster import DBSCAN
 from sklearn.ensemble import RandomForestRegressor, IsolationForest, GradientBoostingRegressor
-from sklearn.model_selection import RandomizedSearchCV
 from lightgbm import LGBMRegressor
+import xgboost
 from xgboost import XGBRegressor
+
+from sklearn.model_selection import RandomizedSearchCV
+from sklearn.model_selection import GridSearchCV
+# from hyperopt import fmin, tpe, hp
 
 import tensorflow as tf
 # import tensorflow_decision_forests as tfdf
@@ -404,30 +410,56 @@ def yggdrassil_random_forest(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED
 
 
 def gradient_booster(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit=False, tune=False):
+
     print(train_ds_pd.shape)
     train_y = train_ds_pd['SalePrice']
     train_x = deepcopy(train_ds_pd).drop('SalePrice', axis=1)
     print(train_x.shape)
 
-    # Sklearn Gradient Boosting
-    gbr = GradientBoostingRegressor(n_estimators=6000,
-                                    criterion='squared_error',
-                                    learning_rate=0.01,
-                                    max_depth=15,
-                                    max_features='sqrt',
-                                    min_samples_leaf=15,
-                                    min_samples_split=10,
-                                    loss='huber',
-                                    random_state=SEED,
-                                    verbose=2)
+    # # Sklearn Gradient Boosting
+    # gbr = GradientBoostingRegressor(n_estimators=6000,
+    #                                 criterion='squared_error',
+    #                                 learning_rate=0.01,
+    #                                 max_depth=15,
+    #                                 max_features='sqrt',
+    #                                 min_samples_leaf=15,
+    #                                 min_samples_split=10,
+    #                                 loss='huber',
+    #                                 random_state=SEED,
+    #                                 verbose=2)
+    #
+    # sk_gbr_model = gbr.fit(train_x, train_y)
+    #
+    # train_r2, valid_r2, RMSE = calculate_metrics(sk_gbr_model, train_ds_pd, valid_ds_pd, predict_on_full_set=False)
+    # print("SKL Gradient Boosting Regressor: -------------------")
+    # print(f'Train R-squared: {train_r2 * 100:.2f}%')
+    # print(f'Validation R-squared: {valid_r2 * 100:.2f}%')
+    # print(f'Validation RMSE: {RMSE:.2f}')
 
-    sk_gbr_model = gbr.fit(train_x, train_y)
+    # XGBoost
 
-    train_r2, valid_r2, RMSE = calculate_metrics(sk_gbr_model, train_ds_pd, valid_ds_pd, predict_on_full_set=False)
-    print("SKL Gradient Boosting Regressor: -------------------")
-    print(f'Train R-squared: {train_r2 * 100:.2f}%')
-    print(f'Validation R-squared: {valid_r2 * 100:.2f}%')
-    print(f'Validation RMSE: {RMSE:.2f}')
+    parameter_grid = {
+        'n_estimators': [4000, 3000, 2000,],
+        'max_depth': [5, 7, 10, 12, 15],
+        'learning_rate': [0.01, 0.001,],
+        'subsample': [0.5, 0.7, 1],
+    }
+    train_x_gpu = cp.asarray(train_x)
+    y_train_y_gpu = cp.asarray(train_y)
+
+    # Xy = xgboost.QuantileDMatrix(train_x, train_y)
+
+    xgb_model = XGBRegressor(tree_method="hist", device="cuda", random_state=SEED, verbosity=2)
+
+    grid_search = GridSearchCV(xgb_model, parameter_grid, cv=5, scoring='neg_root_mean_squared_error',
+                               # n_jobs=4,
+                               return_train_score=True,
+                               verbose=3)
+
+    grid_search.fit(train_x, train_y)
+
+    print("Best set of hyperparameters: ", grid_search.best_params_)
+    print("Best score: ", grid_search.best_score_)
 
 
 def tf_neural_network(train_ds_pd, valid_ds_pd, test, ids, exp_name, submit=False):
