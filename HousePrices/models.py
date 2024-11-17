@@ -52,7 +52,7 @@ def calculate_metrics(model, train_ds_pd, valid_ds_pd, label='SalePrice', predic
     train_r2 = r2_score(train_ds_pd[label], train_predictions)
     print(f'Train R-squared: {train_r2 * 100:.2f}%')
 
-    RMSE = mean_squared_error(train_ds_pd[label], train_predictions, squared=False)
+    RMSE = np.sqrt(mean_squared_error(train_ds_pd[label], train_predictions, squared=False))
     print(f'Train RMSE: {RMSE:.2f}')
     print()
 
@@ -67,11 +67,19 @@ def calculate_metrics(model, train_ds_pd, valid_ds_pd, label='SalePrice', predic
     valid_r2 = r2_score(valid_ds_pd[label], valid_predictions)
     print(f'Validation R-squared: {valid_r2 * 100:.2f}%')
 
-    RMSE = mean_squared_error(valid_ds_pd[label], valid_predictions, squared=False)
+    RMSE = np.sqrt(mean_squared_error(valid_ds_pd[label], valid_predictions, squared=False))
     print(f'Validation RMSE: {RMSE:.2f}')
     print()
 
     return train_r2, valid_r2, RMSE
+
+
+def rmse(y_true, y_pred):
+    return np.sqrt(mean_squared_error(y_true, y_pred))
+
+
+def cupy_rmse(y_true, y_pred):
+    return cp.sqrt(mean_squared_error(y_true, y_pred))
 
 
 def make_submission(model, test_data, ids, exp_name='experiment'):
@@ -410,7 +418,6 @@ def yggdrassil_random_forest(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED
 
 
 def gradient_booster(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit=False, tune=False):
-
     print(train_ds_pd.shape)
     train_y = train_ds_pd['SalePrice']
     train_x = deepcopy(train_ds_pd).drop('SalePrice', axis=1)
@@ -439,25 +446,26 @@ def gradient_booster(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit
     # XGBoost
 
     parameter_grid = {
-        'n_estimators': [4000, 3000, 2000,],
-        'max_depth': [5, 7, 10, 12, 15],
-        'learning_rate': [0.01, 0.001,],
+        'n_estimators': [6000, 2000, ],
+        'max_depth': [5, 7, 10, ],
+        'learning_rate': [0.01, 0.05],
         'subsample': [0.5, 0.7, 1],
     }
     train_x_gpu = cp.asarray(train_x)
     y_train_y_gpu = cp.asarray(train_y)
-
+   
     # Xy = xgboost.QuantileDMatrix(train_x, train_y)
 
     xgb_model = XGBRegressor(tree_method="hist", device="cuda", random_state=SEED, verbosity=2)
 
-    grid_search = GridSearchCV(xgb_model, parameter_grid, cv=5, scoring='neg_root_mean_squared_error',
+    grid_search = GridSearchCV(xgb_model, parameter_grid, cv=5, scoring='neg_mean_squared_error',
                                # n_jobs=4,
                                return_train_score=True,
                                verbose=3)
 
-    grid_search.fit(train_x, train_y)
+    grid_search.fit(train_x_gpu, y_train_y_gpu)
 
+    # {'learning_rate': 0.01, 'max_depth': 5, 'n_estimators': 2000, 'subsample': 0.5}
     print("Best set of hyperparameters: ", grid_search.best_params_)
     print("Best score: ", grid_search.best_score_)
 
