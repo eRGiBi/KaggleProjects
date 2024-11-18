@@ -32,7 +32,7 @@ def calculate_metrics(model, train_ds_pd, valid_ds_pd, label='SalePrice'):
     train_r2 = r2_score(train_ds_pd[label], train_predictions)
     print(f'Train R-squared: {train_r2 * 100:.2f}%')
 
-    RMSE = mean_squared_error(train_ds_pd[label], train_predictions, squared=False)
+    RMSE = np.sqrt(mean_squared_error(train_ds_pd[label], train_predictions, squared=False))
     print(f'Train RMSE: {RMSE:.2f}')
     print()
 
@@ -44,7 +44,7 @@ def calculate_metrics(model, train_ds_pd, valid_ds_pd, label='SalePrice'):
     valid_r2 = r2_score(valid_ds_pd[label], valid_predictions)
     print(f'Validation R-squared: {valid_r2 * 100:.2f}%')
 
-    RMSE = mean_squared_error(valid_ds_pd[label], valid_predictions, squared=False)
+    RMSE = np.sqrt(mean_squared_error(valid_ds_pd[label], valid_predictions, squared=False))
     print(f'Validation RMSE: {RMSE:.2f}')
     print()
 
@@ -85,12 +85,13 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
                              verbose=-1,
                              random_state=SEED)
 
+    # {'learning_rate': 0.01, 'max_depth': 5, 'n_estimators': 2000, 'subsample': 0.5}
     xgboost = XGBRegressor(learning_rate=0.01,
-                           n_estimators=6000,
-                           max_depth=4,
+                           n_estimators=2000,
+                           max_depth=5,
                            min_child_weight=0,
                            gamma=0.6,
-                           subsample=0.7,
+                           subsample=0.5,
                            colsample_bytree=0.7,
                            objective='reg:squarederror',
                            nthread=-1,
@@ -152,7 +153,7 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
     scores['xgb'] = (score.mean(), score.std())
 
     score = cv_rmse(ridge)
-    print("ridge: {:.4f} ({:.4f})".format(score.mean(), score.std()))
+    print("Ridge: {:.4f} ({:.4f})".format(score.mean(), score.std()))
     scores['ridge'] = (score.mean(), score.std())
 
     score = cv_rmse(rf)
