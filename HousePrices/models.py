@@ -12,6 +12,7 @@ from sklearn.cluster import DBSCAN
 from sklearn.ensemble import RandomForestRegressor, IsolationForest, GradientBoostingRegressor
 from lightgbm import LGBMRegressor
 import xgboost
+from tensorflow.python import ops
 from xgboost import XGBRegressor
 
 from sklearn.model_selection import RandomizedSearchCV
@@ -482,8 +483,14 @@ def tf_neural_network(train_ds_pd, valid_ds_pd, test, ids, exp_name, submit=Fals
     # activation_func = 'relu'
     # activation_func = 'mish'
 
-    num_epochs = 450
-    learning_rate = 3.5e-4
+    def scheduler(epoch, lr):
+        if epoch < 550:
+            return lr
+        else:
+            return lr * np.exp(-0.1)
+
+    num_epochs = 550
+    learning_rate = 1.5e-4
     criterion = tf.keras.losses.MeanSquaredError()
     # criterion = tf.keras.losses.MeanAbsoluteError()
     optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate, epsilon=1e-5)
@@ -576,8 +583,7 @@ def tf_neural_network(train_ds_pd, valid_ds_pd, test, ids, exp_name, submit=Fals
     train_losses = np.array(train_losses)
     val_losses = np.array(val_losses)
 
-    # Set model to inference mode (not strictly necessary in TensorFlow as it handles this automatically)
-    # Making predictions on training and testing data
+    # Making predictions
     x_train_tensor = tf.convert_to_tensor(x_train, dtype=tf.float32)
     x_test_tensor = tf.convert_to_tensor(x_test, dtype=tf.float32)
 
@@ -617,9 +623,9 @@ def tf_neural_network(train_ds_pd, valid_ds_pd, test, ids, exp_name, submit=Fals
     print(model.summary())
     print(model.get_config())
     print(optimizer.get_config())
-    print(model.loss)
 
-    model.save("HousePrices/saved_models/nn_model_" + exp_name + ".keras")
+    model.save("HousePrices/saved_models/nn_model_" + exp_name + ".tf",
+               save_format='tf')
 
     exp_logger.save({"Id": exp_name, "Model": "TF Neural Network",
                      "Train_R2": train_r2, "Validation_R2": test_r2, "RMSE": test_rmse,

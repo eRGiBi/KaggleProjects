@@ -18,6 +18,8 @@ import lightgbm as lgb
 from lightgbm import LGBMRegressor
 from xgboost import XGBRegressor
 
+import tensorflow as tf
+
 import seaborn as sns
 
 
@@ -88,9 +90,9 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
     lightgbm = LGBMRegressor(objective='regression',
                              num_leaves=6,
                              learning_rate=0.01,
-                             n_estimators=7000,
+                             n_estimators=4000,
                              max_bin=200,
-                             bagging_fraction=0.8,
+                             bagging_fraction=0.5,
                              bagging_freq=4,
                              bagging_seed=8,
                              feature_fraction=0.2,
@@ -99,7 +101,6 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
                              verbose=-1,
                              random_state=SEED)
 
-    # {'learning_rate': 0.01, 'max_depth': 5, 'n_estimators': 2000, 'subsample': 0.5}
     xgboost = XGBRegressor(learning_rate=0.01,
                            n_estimators=2000,
                            max_depth=5,
@@ -114,11 +115,12 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
                            reg_alpha=0.00006,
                            random_state=SEED)
 
-    ridge_alphas = [1e-15, 1e-10, 1e-8, 9e-4, 7e-4, 5e-4, 3e-4, 1e-4, 1e-3, 5e-2, 1e-2, 0.1, 0.3, 1,
+    ridge_alphas = [1e-10, 1e-8, 9e-4, 7e-4, 5e-4, 3e-4, 1e-4, 1e-3, 5e-2, 1e-2, 0.1, 0.3, 1,
                     2, 3, 5, 10, 15, 18, 20, 30, 50, 75, 100]
     ridge = make_pipeline(RobustScaler(), RidgeCV(alphas=ridge_alphas, cv=kf,
-                                                  gcv_mode='auto',
-                                                  ))
+                                                  scoring='neg_mean_squared_error',
+                                                  gcv_mode='auto')
+                          )
 
     # Sklearn Gradient Boosting
     gbr = GradientBoostingRegressor(n_estimators=6000,
@@ -132,7 +134,7 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
                                     random_state=SEED,
                                     verbose=0)
 
-    rf = RandomForestRegressor(n_estimators=1078,
+    rf = RandomForestRegressor(n_estimators=1578,
                                max_depth=12,
                                criterion='squared_error',
                                min_samples_split=2,
@@ -141,11 +143,11 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
                                bootstrap=True,
                                max_samples=1.0,
                                oob_score=False,
-                               n_jobs=5,
+                               n_jobs=-1,
                                random_state=SEED,
                                verbose=0)
 
-    # nn_model = tf.keras.models.load_model('')
+    # nn_model = tf.keras.models.load_model('HousePrices/saved_models/nn_model_experiment_11.19.2024_22.09.46.tf')
 
     stack_gen = StackingCVRegressor(regressors=(xgboost, lightgbm,
                                                 # nn_model,
@@ -182,11 +184,15 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
     print("Stacked model: {:.4f} ({:.4f})".format(score.mean(), score.std()))
     scores['stack_gen'] = (score.mean(), score.std())
 
+    # score = cv_rmse(nn_model)
+    # print("NN model: {:.4f} ({:.4f})".format(score.mean(), score.std()))
+    # scores['nn'] = (score.mean(), score.std())
+
     print("\nModel fitting...\n")
 
     print('Lightgbm')
     lgb_model = lightgbm.fit(train_x, train_labels,
-                             eval_set=[(valid_ds_pd.drop(['SalePrice'], axis=1), valid_ds_pd['SalePrice'])],)
+                             eval_set=[(valid_x, valid_labels)])
     # calculate_metrics(lgb_model_full_data, train_ds_pd, valid_ds_pd)
 
     print('xgboost')
@@ -209,6 +215,10 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
     stack_gen_model = stack_gen.fit(np.array(train_x), np.array(train_labels))
     # calculate_metrics(stack_gen_model_full_data, train_ds_pd, valid_ds_pd)
 
+    # print('NN')
+    # nn_model = tf.keras.models.load_model('HousePrices/saved_models/nn_model_experiment_08.23.2024_23.09.50.keras')
+
+
     # def blended_predictions(X):
     #     return ((0.05 * ridge_model.predict(X)) +
     #             # (0.2 * nn_model.predict(X)) +
@@ -225,14 +235,18 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
                 weights[2] * xgb_model.predict(X) +
                 weights[3] * lgb_model.predict(X) +
                 weights[4] * rf_model.predict(X) +
-                weights[5] * stack_gen_model.predict(np.array(X)))
+                weights[5] * stack_gen_model.predict(np.array(X)),
+                # weights[6] * nn_model.predict(X)
+                )
 
     def objective(weights, X, y_true):
         return np.sqrt(mean_squared_error(y_true, blended_predictions(X, weights)))
 
-    initial_weights = np.array([0.05, 0.1, 0.3, 0.1, 0.05, 0.35])
+    initial_weights = np.array([0.05, 0.1, 0.3, 0.1, 0.05, 0.35,
+                                # 0.05
+                                ])
 
-    # Constraints: Weights must sum to 1
+    # Constraints: Weights sum to 1
     constraints = ({'type': 'eq', 'fun': lambda w: np.sum(w) - 1})
 
     # Bounds for weights (e.g., between 0 and 1)
@@ -242,7 +256,7 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
     result = minimize(
         objective,
         x0=initial_weights,
-        args=(valid_x, valid_labels),  # Validation features and targets
+        args=(valid_x, valid_labels),
         method='SLSQP',
         bounds=bounds,
         constraints=constraints
@@ -257,7 +271,8 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
                 weights[2] * xgb_model.predict(X) +
                 weights[3] * lgb_model.predict(X) +
                 weights[4] * rf_model.predict(X) +
-                weights[5] * stack_gen_model.predict(np.array(X))
+                weights[5] * stack_gen_model.predict(np.array(X)),
+                # weights[6] * nn_model.predict(X)
                 )
 
     blended_score = rmse(train_labels, blended_predictions(train_x, optimal_weights))
