@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import ydf
 from matplotlib import pyplot as plt
+from scipy.optimize import minimize
 from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
 from sklearn.metrics import mean_squared_error, r2_score, mean_squared_log_error
 from sklearn.model_selection import cross_val_score, KFold
@@ -55,20 +56,33 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
     """
         Ensemble model using StackingCVRegressor from mlxtend library.
 
-        1. https://www.kaggle.com/serigne/stacked-regressions-top-4-on-leaderboard
-        2. https://www.kaggle.com/code/lavanyashukla01/how-i-made-top-0-3-on-a-kaggle-competition#Train-a-model
     """
-
     train_labels = train_ds_pd['SalePrice']
-    X = train_ds_pd.drop(['SalePrice'], axis=1)
+    train_x = train_ds_pd.drop(['SalePrice'], axis=1)
+
+    valid_labels = valid_ds_pd['SalePrice']
+    valid_x = valid_ds_pd.drop(['SalePrice'], axis=1)
 
     kf = KFold(n_splits=12, random_state=SEED, shuffle=True)
 
-    def cv_rmse(model, X=X):
-        rmse = np.sqrt(-cross_val_score(model, X, train_labels, scoring="neg_mean_squared_error", cv=kf))
+    def cv_rmse(model, X=train_x, labels=train_labels):
+        rmse = np.sqrt(-cross_val_score(model, X, labels, scoring="neg_mean_squared_error", cv=kf))
         return rmse
 
-    def NumPyRMSLE(y_true: np.array, y_pred: np.array) -> np.float64:
+    def manual_cross_val_rmse(model, X=train_x, labels=train_labels):
+        rmse = []
+        for train_index, test_index in kf.split(X):
+            X_train, X_test = X.iloc[train_index], X.iloc[test_index]
+            y_train, y_test = labels.iloc[train_index], labels.iloc[test_index]
+            model.fit(X_train, y_train)
+            y_pred = model.predict(X_test)
+            rmse.append(np.sqrt(mean_squared_error(y_test, y_pred)))
+        return rmse
+
+    def rmse(y_true, y_pred):
+        return np.sqrt(mean_squared_error(y_true, y_pred))
+
+    def np_rmse(y_true: np.array, y_pred: np.array) -> np.float64:
         return np.sqrt(np.mean(np.square(np.log1p(y_pred) - np.log1p(y_true))))
 
     lightgbm = LGBMRegressor(objective='regression',
@@ -139,7 +153,7 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
                                     meta_regressor=xgboost,
                                     cv=5,
                                     use_features_in_secondary=True,
-                                    n_jobs=5,
+                                    n_jobs=-1,
                                     verbose=2)
 
     scores = {}
@@ -165,53 +179,102 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
     scores['sklearn_gbr'] = (score.mean(), score.std())
 
     score = cv_rmse(stack_gen)
-    print("stacked: {:.4f} ({:.4f})".format(score.mean(), score.std()))
-    stack_gen_model = stack_gen.fit(np.array(X), np.array(train_labels))
+    print("Stacked model: {:.4f} ({:.4f})".format(score.mean(), score.std()))
     scores['stack_gen'] = (score.mean(), score.std())
 
-    print('lightgbm')
-    lgb_model = lightgbm.fit(X, train_labels,
+    print("\nModel fitting...\n")
+
+    print('Lightgbm')
+    lgb_model = lightgbm.fit(train_x, train_labels,
                              eval_set=[(valid_ds_pd.drop(['SalePrice'], axis=1), valid_ds_pd['SalePrice'])],)
     # calculate_metrics(lgb_model_full_data, train_ds_pd, valid_ds_pd)
 
     print('xgboost')
-    xgb_model = xgboost.fit(X, train_labels)
+    xgb_model = xgboost.fit(train_x, train_labels)
     # calculate_metrics(xgb_model_full_data, train_ds_pd, valid_ds_pd)
 
     print('Ridge')
-    ridge_model = ridge.fit(X, train_labels)
+    ridge_model = ridge.fit(train_x, train_labels)
     # calculate_metrics(ridge_model_full_data, train_ds_pd, valid_ds_pd)
 
     print('RandomForest')
-    rf_model = rf.fit(X, train_labels)
+    rf_model = rf.fit(train_x, train_labels)
     # calculate_metrics(rf_model_full_data, train_ds_pd, valid_ds_pd)
 
     print('GradientBoosting')
-    gbr_model = gbr.fit(X, train_labels)
-
+    gbr_model = gbr.fit(train_x, train_labels)
     # calculate_metrics(gbr_model_full_data, train_ds_pd, valid_ds_pd)
 
-    def blended_predictions(X):
-        return ((0.05 * ridge_model.predict(X)) +
-                # (0.2 * nn_model.predict(X)) +
-                (0.1 * gbr_model.predict(X)) +
-                (0.3 * xgb_model.predict(X)) +
-                (0.1 * lgb_model.predict(X)) +
-                (0.05 * rf_model.predict(X)) +
-                (0.35 * stack_gen_model.predict(np.array(X)))
+    print('Stacking')
+    stack_gen_model = stack_gen.fit(np.array(train_x), np.array(train_labels))
+    # calculate_metrics(stack_gen_model_full_data, train_ds_pd, valid_ds_pd)
+
+    # def blended_predictions(X):
+    #     return ((0.05 * ridge_model.predict(X)) +
+    #             # (0.2 * nn_model.predict(X)) +
+    #             (0.1 * gbr_model.predict(X)) +
+    #             (0.3 * xgb_model.predict(X)) +
+    #             (0.1 * lgb_model.predict(X)) +
+    #             (0.05 * rf_model.predict(X)) +
+    #             (0.35 * stack_gen_model.predict(np.array(X)))
+    #             )
+
+    def blended_predictions(X, weights):
+        return (weights[0] * ridge_model.predict(X) +
+                weights[1] * gbr_model.predict(X) +
+                weights[2] * xgb_model.predict(X) +
+                weights[3] * lgb_model.predict(X) +
+                weights[4] * rf_model.predict(X) +
+                weights[5] * stack_gen_model.predict(np.array(X)))
+
+    def objective(weights, X, y_true):
+        return np.sqrt(mean_squared_error(y_true, blended_predictions(X, weights)))
+
+    initial_weights = np.array([0.05, 0.1, 0.3, 0.1, 0.05, 0.35])
+
+    # Constraints: Weights must sum to 1
+    constraints = ({'type': 'eq', 'fun': lambda w: np.sum(w) - 1})
+
+    # Bounds for weights (e.g., between 0 and 1)
+    bounds = [(0, 1) for _ in initial_weights]
+
+    # Optimize weights
+    result = minimize(
+        objective,
+        x0=initial_weights,
+        args=(valid_x, valid_labels),  # Validation features and targets
+        method='SLSQP',
+        bounds=bounds,
+        constraints=constraints
+    )
+
+    optimal_weights = result.x
+    print("Optimal weights:", optimal_weights)
+
+    def blended_predictions(X, weights=optimal_weights):
+        return (weights[0] * ridge_model.predict(X) +
+                weights[1] * gbr_model.predict(X) +
+                weights[2] * xgb_model.predict(X) +
+                weights[3] * lgb_model.predict(X) +
+                weights[4] * rf_model.predict(X) +
+                weights[5] * stack_gen_model.predict(np.array(X))
                 )
 
-    blended_score = cv_rmse(train_labels, blended_predictions(X))
+    blended_score = rmse(train_labels, blended_predictions(train_x, optimal_weights))
     scores['blended'] = (blended_score, 0)
-    print('Root Mean Squared Logarithmic Error (RMSLE) score on the training dataset:')
-    print(blended_score)
+    print("Blended score: {:.4f} ({:.4f})".format(blended_score.mean(), blended_score.std()))
 
-    validation_predictions = blended_predictions(valid_ds_pd.drop(['SalePrice'], axis=1))
-    validation_score = cv_rmse(valid_ds_pd['SalePrice'], validation_predictions)
+    train_predictions = blended_predictions(train_x, optimal_weights)
+    train_score = np_rmse(train_labels, train_predictions)
+    print('Root Mean Squared Logarithmic Error (RMSLE) score on the training dataset:')
+    print(train_score)
+
+    validation_predictions = blended_predictions(valid_x, optimal_weights)
+    validation_score = np_rmse(valid_ds_pd['SalePrice'], validation_predictions)
     print('Root Mean Squared Logarithmic Error (RMSLE) score on the validation dataset:')
     print(validation_score)
 
-    # Plotting scores of the models
+    # Plotting scores
     sns.set_style("white")
     fig = plt.figure(figsize=(24, 12))
     ax = sns.pointplot(x=list(scores.keys()), y=[score for score, _ in scores.values()],
