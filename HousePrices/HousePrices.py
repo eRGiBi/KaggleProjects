@@ -25,6 +25,8 @@ import warnings
 
 from HousePrices.ensemble_models import ensemble_model
 from HousePrices.models import yggdrassil_random_forest, tf_neural_network, sklearn_random_forest, gradient_booster
+
+
 # from HousePrices.models import tf_decision_forests
 
 
@@ -77,7 +79,11 @@ def encode_data(data):
     return df_encoded
 
 
-def preprocess_data(train, test):
+def preprocess_data(train, test, visualize=False):
+    """
+    Preprocesses the data by handling missing values and encoding categorical data.
+
+    """
     # Outliers
     train.drop(train[(train['OverallQual'] < 5) & (train['SalePrice'] > 200000)].index, inplace=True)
     train.drop(train[(train['GrLivArea'] > 4500) & (train['SalePrice'] < 300000)].index, inplace=True)
@@ -101,6 +107,28 @@ def preprocess_data(train, test):
         https://www.kaggle.com/code/lavanyashukla01/how-i-made-top-0-3-on-a-kaggle-competition#Feature-Engineering
         """
 
+        if visualize:
+            missing_val_count_by_column = (features.isnull().sum())
+            print(missing_val_count_by_column[missing_val_count_by_column > 0])
+
+        # Impute missing values
+        # print("Imputed data: -------------------")
+
+        # my_imputer = SimpleImputer()
+        # # data = my_imputer.fit_transform(data)
+        # # test = my_imputer.fit_transform(test)
+        # all_features = my_imputer.fit_transform(all_features)
+
+        # data = data.drop((missing_data[missing_data['Total'] > 1]).index, 1)
+        # df_train = df_train.drop(df_train.loc[df_train['Electrical'].isnull()].index)
+        # df_train.isnull().sum().max()
+
+        # total = all_features.isnull().sum().sort_values(ascending=False)
+        # percent = (all_features.isnull().sum() / all_features.isnull().count()).sort_values(ascending=False)
+        # missing_data = pd.concat([total, percent], axis=1, keys=['Total', 'Percent'])
+        # print(missing_data.head(20))
+        # print()
+
         features['Functional'] = features['Functional'].fillna('Typ')
         # Replace the missing values with mode
         features['Electrical'] = features['Electrical'].fillna("SBrkr")
@@ -121,12 +149,14 @@ def preprocess_data(train, test):
 
         # Group the by neighborhoods, and fill in missing value by the median LotFrontage of the neighborhood
         features['LotFrontage'] = features.groupby('Neighborhood')['LotFrontage'].transform(
-            lambda x: x.fillna(x.median()))
+            lambda x: x.fillna(x.median())
+        )
 
         objects = []
         for i in features.columns:
             if features[i].dtype == object:
                 objects.append(i)
+
         features.update(features[objects].fillna('None'))
 
         numeric_dtypes = ['int16', 'int32', 'int64', 'float16', 'float32', 'float64']
@@ -138,35 +168,13 @@ def preprocess_data(train, test):
 
         return features
 
-    # missing_val_count_by_column = (data.isnull().sum())
-    # print(missing_val_count_by_column[missing_val_count_by_column > 0])
-
+    print("Handling missing values...")
     all_features = handle_missing(all_features)
 
-    print("Encoding data: -------------------")
+    print("Encoding data...")
     all_features = encode_data(all_features)
 
-    # Impute missing values
-    # print("Imputed data: -------------------")
-
-    # my_imputer = SimpleImputer()
-    # # data = my_imputer.fit_transform(data)
-    # # test = my_imputer.fit_transform(test)
-    # all_features = my_imputer.fit_transform(all_features)
-
-    # data = data.drop((missing_data[missing_data['Total'] > 1]).index, 1)
-    # df_train = df_train.drop(df_train.loc[df_train['Electrical'].isnull()].index)
-    # df_train.isnull().sum().max()
-
-    print("Handling missing values: -------------------")
-    total = all_features.isnull().sum().sort_values(ascending=False)
-    percent = (all_features.isnull().sum() / all_features.isnull().count()).sort_values(ascending=False)
-    missing_data = pd.concat([total, percent], axis=1, keys=['Total', 'Percent'])
-
-    # print(missing_data.head(20))
-    print()
-
-    print("Recombining data: -------------------")
+    print("Recombining data...\n")
     train = all_features.iloc[:len(train_labels), :]
     train.insert(loc=0, column='SalePrice', value=train_labels)
     # train = pd.concat([train, train_labels], axis=1)
@@ -376,7 +384,7 @@ def set_env_variables(SEED):
 
 class HousePricesRegressionEnv:
 
-    def __init__(self, SEED):
+    def __init__(self, SEED, visualize=False):
 
         set_env_variables(SEED)
 
@@ -385,11 +393,13 @@ class HousePricesRegressionEnv:
 
         print("Num GPUs Available: ", len(tf.config.experimental.list_physical_devices('GPU')))
 
-    def run_regression(self, algorithm, SEED, submit=False, tune=False, visualize_data=False):
-
         now = datetime.now().strftime("%m.%d.%Y_%H.%M.%S")
-        exp_name = "experiment_" + str(now)
-        exp_logger = ExperimentLogger('HousePrices/submissions/experiment_aggregate.csv')
+        self.exp_name = "experiment_" + str(now)
+        self.exp_logger = ExperimentLogger('HousePrices/submissions/experiment_aggregate.csv')
+
+        self.train_set, self.valid_set, self.test_set, self.ids = self.construct_datasets(visualize_data=visualize)
+
+    def construct_datasets(self, visualize_data=False):
 
         # Load the data #############################################
         data = pd.read_csv('HousePrices/data/train.csv')
@@ -411,7 +421,7 @@ class HousePricesRegressionEnv:
         # Data preprocessing ###########################################
         print("Preprocessing data: -------------------")
 
-        data, test = preprocess_data(data, test)
+        data, test = preprocess_data(data, test, visualize=visualize_data)
         data = pd.DataFrame(data, columns=data.columns)
 
         if visualize_data:
@@ -438,26 +448,36 @@ class HousePricesRegressionEnv:
         # data = data.drop(data[data['Id'] == 524].index)
 
         train_ds_pd, valid_ds_pd = split_dataset(data)
-        print("{} examples in training, {} examples in testing.".format(
-            len(train_ds_pd), len(valid_ds_pd)))
+        print("{} examples in training, {} examples in validation.".format(
+            len(train_ds_pd), len(valid_ds_pd))
+        )
 
         if visualize_data:
             vds = ydf.create_vertical_dataset(data, include_all_columns=True)
             print(vds.memory_usage())
 
-        # Model training ############################################################
+        return train_ds_pd, valid_ds_pd, test, ids
+
+    def run_regression(self, algorithm, SEED, submit=False, tune=False):
+
+        # Refactor
+        train_ds_pd = self.train_set
+        valid_ds_pd = self.valid_set
+        test = self.test_set
+        ids = self.ids
+        exp_logger = self.exp_logger
 
         if algorithm == 'tfdf':
-            tf_decision_forests(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED)
+            tf_decision_forests(train_ds_pd, valid_ds_pd, test, ids, self.exp_name, SEED)
         elif algorithm == 'sklearn_rf':
-            sklearn_random_forest(data, valid_ds_pd, test, ids, exp_name, SEED, tune=tune)
+            sklearn_random_forest(train_ds_pd, valid_ds_pd, test, ids, self.exp_name, SEED, tune=tune)
         elif algorithm == 'yggdf':
-            yggdrassil_random_forest(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit, tune=tune)
+            yggdrassil_random_forest(train_ds_pd, valid_ds_pd, test, ids, self.exp_name, SEED, submit, tune=tune)
         elif algorithm == 'grb':
-            gradient_booster(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED)
+            gradient_booster(train_ds_pd, valid_ds_pd, test, ids, self.exp_name, SEED)
         elif algorithm == 'ensemble':
-            ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit)
+            ensemble_model(train_ds_pd, valid_ds_pd, test, ids, self.exp_name, SEED, submit)
         elif algorithm == 'NN':
-            tf_neural_network(train_ds_pd, valid_ds_pd, test, ids, exp_name)
+            tf_neural_network(train_ds_pd, valid_ds_pd, test, ids, self.exp_name)
         else:
             print("Invalid algorithm.")

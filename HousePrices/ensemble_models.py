@@ -156,7 +156,7 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
                                     cv=5,
                                     use_features_in_secondary=True,
                                     n_jobs=-1,
-                                    verbose=2)
+                                    verbose=1)
 
     scores = {}
 
@@ -193,41 +193,35 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
     print('Lightgbm')
     lgb_model = lightgbm.fit(train_x, train_labels,
                              eval_set=[(valid_x, valid_labels)])
-    # calculate_metrics(lgb_model_full_data, train_ds_pd, valid_ds_pd)
+    # calculate_metrics(lgb_model, train_ds_pd, valid_ds_pd)
 
     print('xgboost')
     xgb_model = xgboost.fit(train_x, train_labels)
-    # calculate_metrics(xgb_model_full_data, train_ds_pd, valid_ds_pd)
+    # calculate_metrics(xgb_model, train_ds_pd, valid_ds_pd)
 
     print('Ridge')
     ridge_model = ridge.fit(train_x, train_labels)
-    # calculate_metrics(ridge_model_full_data, train_ds_pd, valid_ds_pd)
+    # calculate_metrics(ridge_model, train_ds_pd, valid_ds_pd)
 
     print('RandomForest')
     rf_model = rf.fit(train_x, train_labels)
-    # calculate_metrics(rf_model_full_data, train_ds_pd, valid_ds_pd)
+    # calculate_metrics(rf_model, train_ds_pd, valid_ds_pd)
 
     print('GradientBoosting')
     gbr_model = gbr.fit(train_x, train_labels)
-    # calculate_metrics(gbr_model_full_data, train_ds_pd, valid_ds_pd)
+    # calculate_metrics(gbr_model, train_ds_pd, valid_ds_pd)
 
     print('Stacking')
     stack_gen_model = stack_gen.fit(np.array(train_x), np.array(train_labels))
-    # calculate_metrics(stack_gen_model_full_data, train_ds_pd, valid_ds_pd)
+
+    # calculate_metrics(stack_gen_model, train_ds_pd, valid_ds_pd)
 
     # print('NN')
     # nn_model = tf.keras.models.load_model('HousePrices/saved_models/nn_model_experiment_08.23.2024_23.09.50.keras')
 
-
-    # def blended_predictions(X):
-    #     return ((0.05 * ridge_model.predict(X)) +
-    #             # (0.2 * nn_model.predict(X)) +
-    #             (0.1 * gbr_model.predict(X)) +
-    #             (0.3 * xgb_model.predict(X)) +
-    #             (0.1 * lgb_model.predict(X)) +
-    #             (0.05 * rf_model.predict(X)) +
-    #             (0.35 * stack_gen_model.predict(np.array(X)))
-    #             )
+    initial_weights = np.array([0.05, 0.1, 0.3, 0.1, 0.05, 0.35,
+                                # 0.05
+                                ])
 
     def blended_predictions(X, weights):
         return (weights[0] * ridge_model.predict(X) +
@@ -235,16 +229,12 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
                 weights[2] * xgb_model.predict(X) +
                 weights[3] * lgb_model.predict(X) +
                 weights[4] * rf_model.predict(X) +
-                weights[5] * stack_gen_model.predict(np.array(X)),
+                weights[5] * stack_gen_model.predict(np.array(X))
                 # weights[6] * nn_model.predict(X)
                 )
 
     def objective(weights, X, y_true):
         return np.sqrt(mean_squared_error(y_true, blended_predictions(X, weights)))
-
-    initial_weights = np.array([0.05, 0.1, 0.3, 0.1, 0.05, 0.35,
-                                # 0.05
-                                ])
 
     # Constraints: Weights sum to 1
     constraints = ({'type': 'eq', 'fun': lambda w: np.sum(w) - 1})
@@ -264,16 +254,6 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
 
     optimal_weights = result.x
     print("Optimal weights:", optimal_weights)
-
-    def blended_predictions(X, weights=optimal_weights):
-        return (weights[0] * ridge_model.predict(X) +
-                weights[1] * gbr_model.predict(X) +
-                weights[2] * xgb_model.predict(X) +
-                weights[3] * lgb_model.predict(X) +
-                weights[4] * rf_model.predict(X) +
-                weights[5] * stack_gen_model.predict(np.array(X)),
-                # weights[6] * nn_model.predict(X)
-                )
 
     blended_score = rmse(train_labels, blended_predictions(train_x, optimal_weights))
     scores['blended'] = (blended_score, 0)
@@ -318,7 +298,7 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
     if submit:
         submission = pd.read_csv("HousePrices/data/sample_submission.csv")
 
-        submission.iloc[:, 1] = np.floor((blended_predictions(test)))
+        submission.iloc[:, 1] = np.floor((blended_predictions(test, optimal_weights)))
 
         q1 = submission['SalePrice'].quantile(0.0045)
         q2 = submission['SalePrice'].quantile(0.99)
