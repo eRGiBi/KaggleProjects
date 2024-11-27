@@ -419,7 +419,7 @@ class HousePricesRegressionEnv:
             plt.show()
 
         # Data preprocessing ###########################################
-        print("Preprocessing data: -------------------")
+        print("Preprocessing data...")
 
         data, test = preprocess_data(data, test, visualize=visualize_data)
         data = pd.DataFrame(data, columns=data.columns)

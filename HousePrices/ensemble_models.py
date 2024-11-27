@@ -102,8 +102,8 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
                              random_state=SEED)
 
     xgboost = XGBRegressor(learning_rate=0.01,
-                           n_estimators=2000,
-                           max_depth=5,
+                           n_estimators=3000,
+                           max_depth=4,
                            min_child_weight=0,
                            gamma=0.6,
                            subsample=0.5,
@@ -111,8 +111,8 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
                            objective='reg:squarederror',
                            nthread=-1,
                            scale_pos_weight=1,
-                           seed=SEED + 100,
-                           reg_alpha=0.00006,
+                           seed=SEED,
+                           reg_alpha=6e-5,
                            random_state=SEED)
 
     ridge_alphas = [1e-10, 1e-8, 9e-4, 7e-4, 5e-4, 3e-4, 1e-4, 1e-3, 5e-2, 1e-2, 0.1, 0.3, 1,
