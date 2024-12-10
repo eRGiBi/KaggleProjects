@@ -134,7 +134,7 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
                                     random_state=SEED,
                                     verbose=0)
 
-    rf = RandomForestRegressor(n_estimators=1578,
+    rf = RandomForestRegressor(n_estimators=5578,
                                max_depth=12,
                                criterion='squared_error',
                                min_samples_split=2,
