@@ -364,7 +364,7 @@ def explore_data(data, plot=False, test=False):
         print("Kurtosis: %f" % data['SalePrice'].kurt())
 
 
-def split_dataset(dataset, test_ratio=0.15):
+def split_dataset(dataset, test_ratio=0.1):
     test_indices = np.random.rand(len(dataset)) < test_ratio
     return dataset[~test_indices], dataset[test_indices]
 
