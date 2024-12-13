@@ -123,66 +123,68 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
                           )
 
     # Sklearn Gradient Boosting
-    gbr = GradientBoostingRegressor(n_estimators=6000,
-                                    criterion='squared_error',
-                                    learning_rate=0.01,
-                                    max_depth=4,
-                                    max_features='sqrt',
-                                    min_samples_leaf=15,
-                                    min_samples_split=10,
-                                    loss='huber',
-                                    random_state=SEED,
-                                    verbose=0)
+    skl_gbr = GradientBoostingRegressor(n_estimators=6000,
+                                        criterion='squared_error',
+                                        learning_rate=0.01,
+                                        max_depth=4,
+                                        max_features='sqrt',
+                                        min_samples_leaf=15,
+                                        min_samples_split=10,
+                                        loss='huber',
+                                        random_state=SEED,
+                                        verbose=0)
 
-    rf = RandomForestRegressor(n_estimators=5578,
-                               max_depth=12,
-                               criterion='squared_error',
-                               min_samples_split=2,
-                               min_samples_leaf=1,
-                               max_features=None,
-                               bootstrap=True,
-                               max_samples=1.0,
-                               oob_score=False,
-                               n_jobs=-1,
-                               random_state=SEED,
-                               verbose=0)
+    skl_rf = RandomForestRegressor(n_estimators=5578,
+                                   max_depth=12,
+                                   criterion='squared_error',
+                                   min_samples_split=2,
+                                   min_samples_leaf=1,
+                                   max_features=None,
+                                   bootstrap=True,
+                                   max_samples=1.0,
+                                   oob_score=False,
+                                   n_jobs=-1,
+                                   random_state=SEED,
+                                   verbose=0)
 
     # nn_model = tf.keras.models.load_model('HousePrices/saved_models/nn_model_experiment_11.19.2024_22.09.46.tf')
 
     stack_gen = StackingCVRegressor(regressors=(xgboost, lightgbm,
                                                 # nn_model,
-                                                ridge, gbr, rf),
+                                                ridge, skl_gbr, skl_rf),
                                     meta_regressor=xgboost,
                                     cv=5,
                                     use_features_in_secondary=True,
                                     n_jobs=-1,
                                     verbose=1)
 
+    print('Cross validated RMSE scores:\n')
+
     scores = {}
 
     score = cv_rmse(lightgbm)
-    print("lightgbm: {:.4f} ({:.4f})".format(score.mean(), score.std()))
-    scores['lgb'] = (score.mean(), score.std())
+    scores['lightgbm'] = (score.mean(), score.std())
+    print("LightGBM: {:.4f}".format(scores['lightgbm'], ))
 
     score = cv_rmse(xgboost)
-    print("xgboost: {:.4f} ({:.4f})".format(score.mean(), score.std()))
-    scores['xgb'] = (score.mean(), score.std())
+    scores['xgboost'] = (score.mean(), score.std())
+    print("XGBoost: {:.4f}".format(scores['xgboost']))
 
     score = cv_rmse(ridge)
-    print("Ridge: {:.4f} ({:.4f})".format(score.mean(), score.std()))
     scores['ridge'] = (score.mean(), score.std())
+    print("Ridge: {:.4f}".format(scores['ridge']))
 
-    score = cv_rmse(rf)
-    print("Random Forest: {:.4f} ({:.4f})".format(score.mean(), score.std()))
-    scores['rf'] = (score.mean(), score.std())
+    score = cv_rmse(skl_rf)
+    scores['skl_rf'] = (score.mean(), score.std())
+    print("SKLearn Random Forest: {:.4f}".format(scores['skl_rf']))
 
-    score = cv_rmse(gbr)
-    print("Sklearn grb: {:.4f} ({:.4f})".format(score.mean(), score.std()))
+    score = cv_rmse(skl_gbr)
     scores['sklearn_gbr'] = (score.mean(), score.std())
+    print("sklearn grb: {:.4f}".format(scores['sklearn_gbr']))
 
     score = cv_rmse(stack_gen)
-    print("Stacked model: {:.4f} ({:.4f})".format(score.mean(), score.std()))
     scores['stack_gen'] = (score.mean(), score.std())
+    print("Stacked model: {:.4f}".format(scores['stack_gen']))
 
     # score = cv_rmse(nn_model)
     # print("NN model: {:.4f} ({:.4f})".format(score.mean(), score.std()))
@@ -190,12 +192,12 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
 
     print("\nModel fitting...\n")
 
-    print('Lightgbm')
+    print('LightGBM')
     lgb_model = lightgbm.fit(train_x, train_labels,
                              eval_set=[(valid_x, valid_labels)])
     # calculate_metrics(lgb_model, train_ds_pd, valid_ds_pd)
 
-    print('xgboost')
+    print('XGBoost')
     xgb_model = xgboost.fit(train_x, train_labels)
     # calculate_metrics(xgb_model, train_ds_pd, valid_ds_pd)
 
@@ -203,17 +205,16 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
     ridge_model = ridge.fit(train_x, train_labels)
     # calculate_metrics(ridge_model, train_ds_pd, valid_ds_pd)
 
-    print('RandomForest')
-    rf_model = rf.fit(train_x, train_labels)
+    print('SKLearn Random Forest')
+    rf_model = skl_rf.fit(train_x, train_labels)
     # calculate_metrics(rf_model, train_ds_pd, valid_ds_pd)
 
-    print('GradientBoosting')
-    gbr_model = gbr.fit(train_x, train_labels)
+    print('SKLearn GradientBoosting')
+    skl_gbr_model = skl_gbr.fit(train_x, train_labels)
     # calculate_metrics(gbr_model, train_ds_pd, valid_ds_pd)
 
     print('Stacking')
     stack_gen_model = stack_gen.fit(np.array(train_x), np.array(train_labels))
-
     # calculate_metrics(stack_gen_model, train_ds_pd, valid_ds_pd)
 
     # print('NN')
@@ -225,7 +226,7 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
 
     def blended_predictions(X, weights):
         return (weights[0] * ridge_model.predict(X) +
-                weights[1] * gbr_model.predict(X) +
+                weights[1] * skl_gbr_model.predict(X) +
                 weights[2] * xgb_model.predict(X) +
                 weights[3] * lgb_model.predict(X) +
                 weights[4] * rf_model.predict(X) +
@@ -242,7 +243,6 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
     # Bounds for weights (e.g., between 0 and 1)
     bounds = [(0, 1) for _ in initial_weights]
 
-    # Optimize weights
     result = minimize(
         objective,
         x0=initial_weights,
