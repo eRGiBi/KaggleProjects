@@ -155,6 +155,8 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
                                     meta_regressor=xgboost,
                                     cv=5,
                                     use_features_in_secondary=True,
+                                    shuffle=True,
+                                    random_state=SEED,
                                     n_jobs=-1,
                                     verbose=1)
 
@@ -164,27 +166,27 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
 
     score = cv_rmse(lightgbm)
     scores['lightgbm'] = (score.mean(), score.std())
-    print("LightGBM: {:.4f}".format(scores['lightgbm'], ))
+    print("LightGBM: {}".format(scores['lightgbm'], ))
 
     score = cv_rmse(xgboost)
     scores['xgboost'] = (score.mean(), score.std())
-    print("XGBoost: {:.4f}".format(scores['xgboost']))
+    print("XGBoost: {}".format(scores['xgboost']))
 
     score = cv_rmse(ridge)
     scores['ridge'] = (score.mean(), score.std())
-    print("Ridge: {:.4f}".format(scores['ridge']))
+    print("Ridge: {}".format(scores['ridge']))
 
     score = cv_rmse(skl_rf)
     scores['skl_rf'] = (score.mean(), score.std())
-    print("SKLearn Random Forest: {:.4f}".format(scores['skl_rf']))
+    print("SKLearn Random Forest: {}".format(scores['skl_rf']))
 
     score = cv_rmse(skl_gbr)
     scores['sklearn_gbr'] = (score.mean(), score.std())
-    print("sklearn grb: {:.4f}".format(scores['sklearn_gbr']))
+    print("sklearn grb: {}".format(scores['sklearn_gbr']))
 
     score = cv_rmse(stack_gen)
     scores['stack_gen'] = (score.mean(), score.std())
-    print("Stacked model: {:.4f}".format(scores['stack_gen']))
+    print("Stacked model: {}".format(scores['stack_gen']))
 
     # score = cv_rmse(nn_model)
     # print("NN model: {:.4f} ({:.4f})".format(score.mean(), score.std()))
@@ -214,7 +216,9 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
     # calculate_metrics(gbr_model, train_ds_pd, valid_ds_pd)
 
     print('Stacking')
-    stack_gen_model = stack_gen.fit(np.array(train_x), np.array(train_labels))
+    stack_gen_model = stack_gen.fit(np.array(train_x), np.array(train_labels),
+                                    sample_weight=None)
+    print(stack_gen.score(np.array(valid_x), np.array(valid_labels)))
     # calculate_metrics(stack_gen_model, train_ds_pd, valid_ds_pd)
 
     # print('NN')
@@ -254,6 +258,14 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
 
     optimal_weights = result.x
     print("Optimal weights:", optimal_weights)
+
+    # Refitting StackGen model with optimal weights
+    opt_stack_gen = stack_gen.fit(np.array(train_x), np.array(train_labels),
+                                    sample_weight=optimal_weights[:len(optimal_weights)])
+    score = cv_rmse(opt_stack_gen)
+    scores['opt_stack_gen'] = (score.mean(), score.std())
+    print(stack_gen.score(np.array(valid_x), np.array(valid_labels)))
+
 
     blended_score = rmse(train_labels, blended_predictions(train_x, optimal_weights))
     scores['blended'] = (blended_score, 0)
