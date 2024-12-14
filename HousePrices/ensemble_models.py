@@ -122,13 +122,14 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
                                                   gcv_mode='auto')
                           )
 
-    # Sklearn Gradient Boosting
-    skl_gbr = GradientBoostingRegressor(n_estimators=6000,
-                                        criterion='squared_error',
+    # sklearn Gradient Boosting
+    skl_gbr = GradientBoostingRegressor(n_estimators=18000,
+                                        criterion='friedman_mse',
                                         learning_rate=0.01,
+                                        subsample=0.5,
                                         max_depth=4,
                                         max_features='sqrt',
-                                        min_samples_leaf=15,
+                                        min_samples_leaf=7,
                                         min_samples_split=10,
                                         loss='huber',
                                         random_state=SEED,
@@ -160,6 +161,7 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
                                     n_jobs=-1,
                                     verbose=1)
 
+    print()
     print('Cross validated RMSE scores:\n')
 
     scores = {}
@@ -178,7 +180,7 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
 
     score = cv_rmse(skl_rf)
     scores['skl_rf'] = (score.mean(), score.std())
-    print("SKLearn Random Forest: {}".format(scores['skl_rf']))
+    print("sklearn Random Forest: {}".format(scores['skl_rf']))
 
     score = cv_rmse(skl_gbr)
     scores['sklearn_gbr'] = (score.mean(), score.std())
@@ -207,21 +209,20 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
     ridge_model = ridge.fit(train_x, train_labels)
     # calculate_metrics(ridge_model, train_ds_pd, valid_ds_pd)
 
-    print('SKLearn Random Forest')
+    print('sklearn Random Forest')
     rf_model = skl_rf.fit(train_x, train_labels)
     # calculate_metrics(rf_model, train_ds_pd, valid_ds_pd)
 
-    print('SKLearn GradientBoosting')
+    print('sklearn Gradient Boosting')
     skl_gbr_model = skl_gbr.fit(train_x, train_labels)
     # calculate_metrics(gbr_model, train_ds_pd, valid_ds_pd)
 
-    print('Stacking')
+    print('mlxtend CVStacking')
     stack_gen_model = stack_gen.fit(np.array(train_x), np.array(train_labels),
                                     sample_weight=None)
     print(stack_gen.score(np.array(valid_x), np.array(valid_labels)))
     # calculate_metrics(stack_gen_model, train_ds_pd, valid_ds_pd)
 
-    # print('NN')
     # nn_model = tf.keras.models.load_model('HousePrices/saved_models/nn_model_experiment_08.23.2024_23.09.50.keras')
 
     initial_weights = np.array([0.05, 0.1, 0.3, 0.1, 0.05, 0.35,
