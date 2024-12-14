@@ -1,10 +1,12 @@
 from copy import deepcopy
 
+import matplotlib
 import numpy as np
 import pandas as pd
 import cupy as cp
 
 from scipy.stats import stats
+from sklearn.inspection import permutation_importance
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 # import category_encoders as ce
 
@@ -12,6 +14,7 @@ from sklearn.cluster import DBSCAN
 from sklearn.ensemble import RandomForestRegressor, IsolationForest, GradientBoostingRegressor
 from lightgbm import LGBMRegressor
 import xgboost
+from sklearn.metrics._dist_metrics import parse_version
 from tensorflow.python import ops
 from xgboost import XGBRegressor
 
@@ -31,24 +34,14 @@ from ExperimentLogger import ExperimentLogger
 exp_logger = ExperimentLogger('HousePrices/submissions/experiment_aggregate.csv')
 
 
-def calculate_metrics(model, train_ds_pd, valid_ds_pd, label='SalePrice', predict_on_full_set=True):
+def calculate_metrics(model, train_ds_pd, valid_ds_pd, label='SalePrice', predict_on_full_set=True,
+                      print_predictions=True):
     """
     Sample model prediction and ground truth comparison.
     Calculate R-squared and RMSE for training and validation sets.
-    :param model:
-    :param train_ds_pd:
-    :param valid_ds_pd:
-    :param label:
-    :param predict_on_full_set:
-    :return:
     """
     train_predictions = model.predict(train_ds_pd) if predict_on_full_set else (
         model.predict(train_ds_pd.drop(label, axis=1)))
-
-    indexes = [np.random.randint(0, len(train_ds_pd), 10)]
-    for i in indexes:
-        print(f"Train Prediction: {train_predictions[i]}, SalePrice: {train_ds_pd[label].iloc[i]}")
-    print()
 
     train_r2 = r2_score(train_ds_pd[label], train_predictions)
     print(f'Train R-squared: {train_r2 * 100:.2f}%')
@@ -60,17 +53,23 @@ def calculate_metrics(model, train_ds_pd, valid_ds_pd, label='SalePrice', predic
     valid_predictions = model.predict(valid_ds_pd) if predict_on_full_set else (
         model.predict(valid_ds_pd.drop(label, axis=1)))
 
-    valid_indexes = [np.random.randint(0, len(valid_ds_pd), 10)]
-    for i in valid_indexes:
-        print(f"Validation Prediction: {valid_predictions[i]}, SalePrice: {valid_ds_pd[label].iloc[i]}")
-    print()
-
     valid_r2 = r2_score(valid_ds_pd[label], valid_predictions)
     print(f'Validation R-squared: {valid_r2 * 100:.2f}%')
 
     RMSE = np.sqrt(mean_squared_error(valid_ds_pd[label], valid_predictions, squared=False))
     print(f'Validation RMSE: {RMSE:.2f}')
     print()
+
+    if print_predictions:
+        indexes = [np.random.randint(0, len(train_ds_pd), 10)]
+        for i in indexes:
+            print(f"Train Prediction: {train_predictions[i]}, SalePrice: {train_ds_pd[label].iloc[i]}")
+        print()
+
+        valid_indexes = [np.random.randint(0, len(valid_ds_pd), 10)]
+        for i in valid_indexes:
+            print(f"Validation Prediction: {valid_predictions[i]}, SalePrice: {valid_ds_pd[label].iloc[i]}")
+        print()
 
     return train_r2, valid_r2, RMSE
 
@@ -418,57 +417,138 @@ def yggdrassil_random_forest(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED
             make_submission(model, test, ids, exp_name)
 
 
-def gradient_booster(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit=False, tune=False):
+def gradient_booster(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit=False, tune=False, ):
+    visualize = True
+
+    xgb = False
+    lgbm = False
+    skl = True
+
     print(train_ds_pd.shape)
     train_y = train_ds_pd['SalePrice']
     train_x = deepcopy(train_ds_pd).drop('SalePrice', axis=1)
-    print(train_x.shape)
 
-    # # Sklearn Gradient Boosting
-    # gbr = GradientBoostingRegressor(n_estimators=6000,
-    #                                 criterion='squared_error',
-    #                                 learning_rate=0.01,
-    #                                 max_depth=15,
-    #                                 max_features='sqrt',
-    #                                 min_samples_leaf=15,
-    #                                 min_samples_split=10,
-    #                                 loss='huber',
-    #                                 random_state=SEED,
-    #                                 verbose=2)
-    #
-    # sk_gbr_model = gbr.fit(train_x, train_y)
-    #
-    # train_r2, valid_r2, RMSE = calculate_metrics(sk_gbr_model, train_ds_pd, valid_ds_pd, predict_on_full_set=False)
-    # print("SKL Gradient Boosting Regressor: -------------------")
-    # print(f'Train R-squared: {train_r2 * 100:.2f}%')
-    # print(f'Validation R-squared: {valid_r2 * 100:.2f}%')
-    # print(f'Validation RMSE: {RMSE:.2f}')
+    valid_y = valid_ds_pd['SalePrice']
+    valid_x = deepcopy(valid_ds_pd).drop('SalePrice', axis=1)
+
+    regressor = None
+
+    # Sklearn Gradient Boosting
+
+    if skl:
+
+        if not tune:
+
+            params = {
+                'n_estimators': 18000,
+                'criterion': 'friedman_mse',
+                'learning_rate': 0.01,
+                'subsample': 0.5,
+                'max_depth': 4,
+                'max_features': 'sqrt',
+                'min_samples_leaf': 7,
+                'min_samples_split': 10,
+                'loss': 'huber',
+                'random_state': SEED,
+                'verbose': 2
+            }
+
+            regressor = GradientBoostingRegressor(**params)
+
+            model = regressor.fit(train_x, train_y)
+
+            print("SKL Gradient Boosting Regressor: -------------------")
+            train_r2, valid_r2, RMSE = calculate_metrics(model, train_ds_pd, valid_ds_pd, predict_on_full_set=False,
+                                                         print_predictions=False)
+
+            if visualize:
+                feature_importance = regressor.feature_importances_
+                sorted_idx = np.argsort(feature_importance)[-10:]
+
+                pos = np.arange(sorted_idx.shape[0]) + 0.5
+                fig = plt.figure(figsize=(12, 6))
+                plt.subplot(1, 2, 1)
+                plt.barh(pos, feature_importance[sorted_idx], align="center")
+                plt.yticks(pos, np.array(train_ds_pd.columns)[sorted_idx])
+                plt.title("Feature Importance (MDI)")
+
+                result = permutation_importance(
+                    regressor, valid_x, valid_y, n_repeats=10, random_state=SEED, n_jobs=-1)
+
+                sorted_idx = result.importances_mean.argsort()
+                sorted_idx = sorted_idx[-10:]
+                plt.subplot(1, 2, 2)
+
+                tick_labels_parameter_name = (
+                    "tick_labels"
+                    if parse_version(matplotlib.__version__) >= parse_version("3.9")
+                    else "labels"
+                )
+
+                tick_labels_dict = {
+                    tick_labels_parameter_name: np.array(train_ds_pd.columns)[sorted_idx]
+                }
+                plt.boxplot(result.importances[sorted_idx].T, vert=False, **tick_labels_dict)
+                plt.title("Permutation Importance (test set)")
+                fig.tight_layout()
+                plt.show()
 
     # XGBoost
 
-    parameter_grid = {
-        'n_estimators': [6000, 2000, ],
-        'max_depth': [5, 7, 10, ],
-        'learning_rate': [0.01, 0.05],
-        'subsample': [0.5, 0.7, 1],
-    }
-    train_x_gpu = cp.asarray(train_x)
-    y_train_y_gpu = cp.asarray(train_y)
-   
-    # Xy = xgboost.QuantileDMatrix(train_x, train_y)
+    if xgb:
 
-    xgb_model = XGBRegressor(tree_method="hist", device="cuda", random_state=SEED, verbosity=2)
+        if tune:
 
-    grid_search = GridSearchCV(xgb_model, parameter_grid, cv=5, scoring='neg_mean_squared_error',
-                               # n_jobs=4,
-                               return_train_score=True,
-                               verbose=3)
+            parameter_grid = {
+                'n_estimators': [6000, 2000, ],
+                'max_depth': [5, 7, 10, ],
+                'learning_rate': [0.01, 0.05],
+                'subsample': [0.5, 0.7, 1],
+            }
+            train_x_gpu = cp.asarray(train_x)
+            y_train_y_gpu = cp.asarray(train_y)
 
-    grid_search.fit(train_x_gpu, y_train_y_gpu)
+            # Xy = xgboost.QuantileDMatrix(train_x, train_y)
 
-    # {'learning_rate': 0.01, 'max_depth': 5, 'n_estimators': 2000, 'subsample': 0.5}
-    print("Best set of hyperparameters: ", grid_search.best_params_)
-    print("Best score: ", grid_search.best_score_)
+            regressor = XGBRegressor(tree_method="hist", device="cuda", random_state=SEED, verbosity=2)
+
+            grid_search = GridSearchCV(regressor, parameter_grid, cv=5, scoring='neg_mean_squared_error',
+                                       # n_jobs=4,
+                                       return_train_score=True,
+                                       verbose=3)
+
+            grid_search.fit(train_x_gpu, y_train_y_gpu)
+
+            # {'learning_rate': 0.01, 'max_depth': 5, 'n_estimators': 2000, 'subsample': 0.5}
+            print("Best set of hyperparameters: ", grid_search.best_params_)
+            print("Best score: ", grid_search.best_score_)
+
+        else:
+            pass
+
+    if visualize:
+
+        test_score = np.zeros((params["n_estimators"],), dtype=np.float64)
+        for i, y_pred in enumerate(regressor.staged_predict(valid_x)):
+            test_score[i] = mean_squared_error(valid_y, y_pred)
+
+        fig = plt.figure(figsize=(6, 6))
+        plt.subplot(1, 1, 1)
+        plt.title("Deviance")
+        plt.plot(
+            np.arange(params["n_estimators"]) + 1,
+            regressor.train_score_,
+            "b-",
+            label="Training Set Deviance",
+        )
+        plt.plot(
+            np.arange(params["n_estimators"]) + 1, test_score, "r-", label="Test Set Deviance"
+        )
+        plt.legend(loc="upper right")
+        plt.xlabel("Boosting Iterations")
+        plt.ylabel("Deviance")
+        fig.tight_layout()
+        plt.show()
 
 
 def tf_neural_network(train_ds_pd, valid_ds_pd, test, ids, exp_name, submit=False):
@@ -480,6 +560,7 @@ def tf_neural_network(train_ds_pd, valid_ds_pd, test, ids, exp_name, submit=Fals
     # Hyperparameters
     batch_size = 128
     activation_func = 'gelu'
+
     # activation_func = 'relu'
     # activation_func = 'mish'
 
