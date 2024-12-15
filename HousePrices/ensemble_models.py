@@ -123,9 +123,9 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
                           )
 
     # sklearn Gradient Boosting
-    skl_gbr = GradientBoostingRegressor(n_estimators=18000,
+    skl_gbr = GradientBoostingRegressor(n_estimators=1800,
                                         criterion='friedman_mse',
-                                        learning_rate=0.01,
+                                        learning_rate=0.1,
                                         subsample=0.5,
                                         max_depth=4,
                                         max_features='sqrt',
@@ -260,13 +260,13 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
     optimal_weights = result.x
     print("Optimal weights:", optimal_weights)
 
-    # Refitting StackGen model with optimal weights
-    opt_stack_gen = stack_gen.fit(np.array(train_x), np.array(train_labels),
-                                    sample_weight=optimal_weights[:len(optimal_weights)])
-    score = cv_rmse(opt_stack_gen)
-    scores['opt_stack_gen'] = (score.mean(), score.std())
-    print(stack_gen.score(np.array(valid_x), np.array(valid_labels)))
-
+    # # Refitting StackGen model with optimal weights
+    # opt_stack_gen = stack_gen.fit(np.array(train_x), np.array(train_labels),
+    #                               sample_weight=None)
+    #
+    # score = cv_rmse(opt_stack_gen)
+    # scores['opt_stack_gen'] = (score.mean(), score.std())
+    # print(stack_gen.score(np.array(valid_x), np.array(valid_labels)))
 
     blended_score = rmse(train_labels, blended_predictions(train_x, optimal_weights))
     scores['blended'] = (blended_score, 0)
@@ -304,7 +304,7 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
     plt.tick_params(axis='x', labelsize=13.5)
     plt.tick_params(axis='y', labelsize=12.5)
 
-    plt.title('Scores of Models', size=20)
+    plt.title('Scores of Models', size=15)
     plt.show()
 
     # Submission
@@ -319,7 +319,3 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
         submission['SalePrice'] = submission['SalePrice'].apply(lambda x: x if x < q2 else x * 1.1)
 
         submission.to_csv("HousePrices/submissions/submission_" + exp_name + "_1.csv", index=False)
-
-        # submission['SalePrice'] *= 1.001619
-
-        submission.to_csv("HousePrices/submissions/submission_" + exp_name + "_2.csv", index=False)
