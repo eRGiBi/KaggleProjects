@@ -3,7 +3,7 @@ import pandas as pd
 import ydf
 from matplotlib import pyplot as plt
 from scipy.optimize import minimize
-from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
+from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor, HistGradientBoostingRegressor
 from sklearn.metrics import mean_squared_error, r2_score, mean_squared_log_error
 from sklearn.model_selection import cross_val_score, KFold
 from sklearn.pipeline import make_pipeline
@@ -84,7 +84,7 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
     def rmse(y_true, y_pred):
         return np.sqrt(mean_squared_error(y_true, y_pred))
 
-    def np_rmse(y_true: np.array, y_pred: np.array) -> np.float64:
+    def np_rmsle(y_true: np.array, y_pred: np.array) -> np.float64:
         return np.sqrt(np.mean(np.square(np.log1p(y_pred) - np.log1p(y_true))))
 
     lightgbm = LGBMRegressor(objective='regression',
@@ -117,10 +117,11 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
 
     ridge_alphas = [1e-10, 1e-8, 9e-4, 7e-4, 5e-4, 3e-4, 1e-4, 1e-3, 5e-2, 1e-2, 0.1, 0.3, 1,
                     2, 3, 5, 10, 15, 18, 20, 30, 50, 75, 100]
-    ridge = make_pipeline(RobustScaler(), RidgeCV(alphas=ridge_alphas, cv=kf,
-                                                  scoring='neg_mean_squared_error',
-                                                  gcv_mode='auto')
-                          )
+    ridge = make_pipeline(RobustScaler(),
+                          RidgeCV(alphas=ridge_alphas, cv=kf,
+                                  scoring='neg_mean_squared_error',
+                                  gcv_mode='auto'),
+                          verbose=False)
 
     # sklearn Gradient Boosting
     skl_gbr = GradientBoostingRegressor(n_estimators=1800,
@@ -134,6 +135,16 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
                                         loss='huber',
                                         random_state=SEED,
                                         verbose=0)
+
+    # skl_gbr = HistGradientBoostingRegressor(max_iter=1800,
+    #                                         max_depth=4,
+    #                                         learning_rate=0.1,
+    #                                         min_samples_leaf=7,
+    #                                         l2_regularization=0.1,
+    #                                         max_leaf_nodes=31,
+    #                                         early_stopping=False,
+    #                                         verbose=0,
+    #                                         random_state=SEED)
 
     skl_rf = RandomForestRegressor(n_estimators=5578,
                                    max_depth=12,
@@ -240,7 +251,10 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
                 )
 
     def objective(weights, X, y_true):
-        return np.sqrt(mean_squared_error(y_true, blended_predictions(X, weights)))
+
+        # np.sqrt(mean_squared_error(y_true, blended_predictions(X, weights)))
+
+        return np.sqrt(np.mean(np.square(np.log1p(blended_predictions(X, weights) + 1) - np.log1p(y_true + 1))))
 
     # Constraints: Weights sum to 1
     constraints = ({'type': 'eq', 'fun': lambda w: np.sum(w) - 1})
@@ -268,17 +282,18 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
     # scores['opt_stack_gen'] = (score.mean(), score.std())
     # print(stack_gen.score(np.array(valid_x), np.array(valid_labels)))
 
-    blended_score = rmse(train_labels, blended_predictions(train_x, optimal_weights))
+    train_predictions = blended_predictions(train_x, optimal_weights)
+
+    blended_score = rmse(train_labels, train_predictions)
     scores['blended'] = (blended_score, 0)
     print("Blended score: {:.4f} ({:.4f})".format(blended_score.mean(), blended_score.std()))
 
-    train_predictions = blended_predictions(train_x, optimal_weights)
-    train_score = np_rmse(train_labels, train_predictions)
+    train_score = np_rmsle(train_labels, train_predictions)
     print('Root Mean Squared Logarithmic Error (RMSLE) score on the training dataset:')
     print(train_score)
 
     validation_predictions = blended_predictions(valid_x, optimal_weights)
-    validation_score = np_rmse(valid_ds_pd['SalePrice'], validation_predictions)
+    validation_score = np_rmsle(valid_ds_pd['SalePrice'], validation_predictions)
     print('Root Mean Squared Logarithmic Error (RMSLE) score on the validation dataset:')
     print(validation_score)
 
@@ -318,4 +333,4 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
         submission['SalePrice'] = submission['SalePrice'].apply(lambda x: x if x > q1 else x * 0.77)
         submission['SalePrice'] = submission['SalePrice'].apply(lambda x: x if x < q2 else x * 1.1)
 
-        submission.to_csv("HousePrices/submissions/submission_" + exp_name + "_1.csv", index=False)
+        submission.to_csv("HousePrices/submissions/submission_" + exp_name + ".csv", index=False)
