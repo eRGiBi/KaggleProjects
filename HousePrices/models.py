@@ -1,4 +1,6 @@
+import pickle
 from copy import deepcopy
+from pickle import dump
 
 import matplotlib
 import numpy as np
@@ -229,29 +231,23 @@ def sklearn_random_forest(data, valid_ds_pd, test, ids, exp_name, SEED, tune=Fal
 
         rf.fit(x_train, y_train)
 
+        with open("HousePrices/saved_models/best_skl_rf_model.joblib", "wb") as f:
+            dump(rf, f, protocol=5)
+
     else:
+        random_grid = {'criterion': ['squared_error', 'absolute_error', 'friedman_mse', 'poisson'],
+                       'n_estimators': [int(x) for x in np.linspace(start=500, stop=1500, num=20)],
+                       'max_features': ['auto', 'sqrt', None],
+                       'max_depth': [int(x) for x in np.linspace(10, 20, num=5)],
+                       'min_samples_split': [2, 5, 10],
+                       'min_samples_leaf': [1, 2, 4],
+                       'bootstrap': [True, False],
+                       'max_samples': [0.9, 0.925, 0.95, 0.975, 1.0],
+                       'oob_score': [True, False]
+                       }
 
-        criterion = ["squared_error", "absolute_error", "friedman_mse", "poisson"]
-        n_estimators = [int(x) for x in np.linspace(start=500, stop=1500, num=20)]
-        max_features = ['auto', 'sqrt', None]
-        max_depth = [int(x) for x in np.linspace(10, 20, num=5)]
-        min_samples_split = [2, 5, 10]
-        min_samples_leaf = [1, 2, 4]
-        bootstrap = [True, False]
-        max_samples = [0.9, 0.925, 0.95, 0.975, 1.0]
-        oob_score = [True, False]
+        rfr = RandomForestRegressor(n_jobs=-1, random_state=SEED, verbose=2)
 
-        random_grid = {'criterion': criterion,
-                       'n_estimators': n_estimators,
-                       'max_features': max_features,
-                       'max_depth': max_depth,
-                       'min_samples_split': min_samples_split,
-                       'min_samples_leaf': min_samples_leaf,
-                       'bootstrap': bootstrap,
-                       'max_samples': max_samples,
-                       'oob_score': oob_score}
-
-        rfr = RandomForestRegressor()
         rf = RandomizedSearchCV(estimator=rfr,
                                 param_distributions=random_grid,
                                 n_iter=1000,
@@ -417,14 +413,13 @@ def yggdrassil_random_forest(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED
             make_submission(model, test, ids, exp_name)
 
 
-def gradient_booster(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit=False, tune=False, ):
+def gradient_booster(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit=False, tune=False):
     visualize = True
 
     xgb = False
     lgbm = False
     skl = True
 
-    print(train_ds_pd.shape)
     train_y = train_ds_pd['SalePrice']
     train_x = deepcopy(train_ds_pd).drop('SalePrice', axis=1)
 
@@ -433,6 +428,10 @@ def gradient_booster(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit
 
     regressor = None
 
+    monotonic_cst = {
+
+    }
+
     # Sklearn Gradient Boosting
 
     if skl:
@@ -440,20 +439,22 @@ def gradient_booster(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit
         if not tune:
 
             params = {
-                'n_estimators': 18000,
+                'n_estimators': 3500,
                 'criterion': 'friedman_mse',
                 'learning_rate': 0.01,
                 'subsample': 0.5,
                 'max_depth': 4,
                 'max_features': 'sqrt',
-                'min_samples_leaf': 7,
-                'min_samples_split': 10,
+                'min_samples_leaf': 4,
+                'min_samples_split': 7,
                 'loss': 'huber',
                 'random_state': SEED,
                 'verbose': 2
             }
 
             regressor = GradientBoostingRegressor(**params)
+
+            # regressor = pickle.load(open("HousePrices/saved_models/best_skl_gb_model.joblib", "rb"))
 
             model = regressor.fit(train_x, train_y)
 
@@ -492,6 +493,41 @@ def gradient_booster(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit
                 plt.title("Permutation Importance (test set)")
                 fig.tight_layout()
                 plt.show()
+
+                with open("HousePrices/saved_models/best_skl_gb_model.joblib", "wb") as f:
+                    dump(model, f, protocol=5)
+
+        else:
+
+            parameter_grid = {
+                'n_estimators': [1800, 3500, 4500, 5500],
+                'max_depth': [4],
+                'learning_rate': [0.1, 0.05, 0.01],
+                'subsample': [0.5],
+                'min_samples_leaf': [7, 4],
+                'min_samples_split': [7],
+            }
+
+            regressor = GradientBoostingRegressor(random_state=SEED, verbose=2)
+
+            grid_search = GridSearchCV(regressor, parameter_grid, cv=5, scoring='neg_root_mean_squared_log_error',
+                                       n_jobs=-1,
+                                       return_train_score=True,
+                                       verbose=3)
+
+            grid_search.fit(train_x, train_y)
+
+            print("Best set of hyperparameters: ", grid_search.best_params_)
+            print("Best score: ", grid_search.best_score_)
+
+            df = pd.DataFrame(grid_search.cv_results_)
+            print(df)
+            df.to_csv("HousePrices/results/skl_grb_grid_search_results.csv")
+
+            plt.show()
+
+
+
 
     # XGBoost
 

@@ -1,3 +1,5 @@
+import pickle
+
 import numpy as np
 import pandas as pd
 import ydf
@@ -54,7 +56,7 @@ def calculate_metrics(model, train_ds_pd, valid_ds_pd, label='SalePrice'):
     return train_r2, valid_r2, RMSE
 
 
-def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, submit=False):
+def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, from_scratch=False, SEED=476, submit=False):
     """
         Ensemble model using StackingCVRegressor from mlxtend library.
 
@@ -124,27 +126,17 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
                           verbose=False)
 
     # sklearn Gradient Boosting
-    skl_gbr = GradientBoostingRegressor(n_estimators=1800,
+    skl_gbr = GradientBoostingRegressor(n_estimators=3500,
                                         criterion='friedman_mse',
-                                        learning_rate=0.1,
+                                        learning_rate=0.01,
                                         subsample=0.5,
                                         max_depth=4,
                                         max_features='sqrt',
-                                        min_samples_leaf=7,
-                                        min_samples_split=10,
+                                        min_samples_leaf=4,
+                                        min_samples_split=7,
                                         loss='huber',
                                         random_state=SEED,
                                         verbose=0)
-
-    # skl_gbr = HistGradientBoostingRegressor(max_iter=1800,
-    #                                         max_depth=4,
-    #                                         learning_rate=0.1,
-    #                                         min_samples_leaf=7,
-    #                                         l2_regularization=0.1,
-    #                                         max_leaf_nodes=31,
-    #                                         early_stopping=False,
-    #                                         verbose=0,
-    #                                         random_state=SEED)
 
     skl_rf = RandomForestRegressor(n_estimators=5578,
                                    max_depth=12,
@@ -173,7 +165,7 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
                                     verbose=1)
 
     print()
-    print('Cross validated RMSE scores:\n')
+    print('Cross-validated RMSE scores:\n')
 
     scores = {}
 
@@ -207,34 +199,45 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED=476, subm
 
     print("\nModel fitting...\n")
 
-    print('LightGBM')
-    lgb_model = lightgbm.fit(train_x, train_labels,
-                             eval_set=[(valid_x, valid_labels)])
-    # calculate_metrics(lgb_model, train_ds_pd, valid_ds_pd)
+    if from_scratch:
 
-    print('XGBoost')
-    xgb_model = xgboost.fit(train_x, train_labels)
-    # calculate_metrics(xgb_model, train_ds_pd, valid_ds_pd)
+        print('LightGBM')
+        lgb_model = lightgbm.fit(train_x, train_labels,
+                                 eval_set=[(valid_x, valid_labels)])
+        # calculate_metrics(lgb_model, train_ds_pd, valid_ds_pd)
 
-    print('Ridge')
-    ridge_model = ridge.fit(train_x, train_labels)
-    # calculate_metrics(ridge_model, train_ds_pd, valid_ds_pd)
+        print('XGBoost')
+        xgb_model = xgboost.fit(train_x, train_labels)
+        # calculate_metrics(xgb_model, train_ds_pd, valid_ds_pd)
 
-    print('sklearn Random Forest')
-    rf_model = skl_rf.fit(train_x, train_labels)
-    # calculate_metrics(rf_model, train_ds_pd, valid_ds_pd)
+        print('Ridge')
+        ridge_model = ridge.fit(train_x, train_labels)
+        # calculate_metrics(ridge_model, train_ds_pd, valid_ds_pd)
 
-    print('sklearn Gradient Boosting')
-    skl_gbr_model = skl_gbr.fit(train_x, train_labels)
-    # calculate_metrics(gbr_model, train_ds_pd, valid_ds_pd)
+        print('sklearn Random Forest')
+        rf_model = skl_rf.fit(train_x, train_labels)
+        # calculate_metrics(rf_model, train_ds_pd, valid_ds_pd)
 
-    print('mlxtend CVStacking')
-    stack_gen_model = stack_gen.fit(np.array(train_x), np.array(train_labels),
-                                    sample_weight=None)
-    print(stack_gen.score(np.array(valid_x), np.array(valid_labels)))
-    # calculate_metrics(stack_gen_model, train_ds_pd, valid_ds_pd)
+        print('sklearn Gradient Boosting')
+        skl_gbr_model = skl_gbr.fit(train_x, train_labels)
+        # calculate_metrics(gbr_model, train_ds_pd, valid_ds_pd)
 
-    # nn_model = tf.keras.models.load_model('HousePrices/saved_models/nn_model_experiment_08.23.2024_23.09.50.keras')
+        print('mlxtend CVStacking')
+        stack_gen_model = stack_gen.fit(np.array(train_x), np.array(train_labels),
+                                        sample_weight=None)
+        print(stack_gen.score(np.array(valid_x), np.array(valid_labels)))
+        # calculate_metrics(stack_gen_model, train_ds_pd, valid_ds_pd)
+
+    else:
+        print('Loading models...')
+
+        print("sklearn Random Forest")
+        rf_model = pickle.load(open("HousePrices/saved_models/best_skl_rf_model.joblib", "rb"))
+
+        print('sklearn Gradient Boosting')
+        skl_gbr_model = pickle.load(open("HousePrices/saved_models/best_skl_gb_model.joblib", "rb"))
+
+        # nn_model = tf.keras.models.load_model('HousePrices/saved_models/nn_model_experiment_08.23.2024_23.09.50.keras')
 
     initial_weights = np.array([0.05, 0.1, 0.3, 0.1, 0.05, 0.35,
                                 # 0.05
