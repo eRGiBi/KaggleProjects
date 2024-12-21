@@ -345,6 +345,15 @@ def explore_data(data, plot=False, test=False):
                          yticklabels=cols.values, xticklabels=cols.values)
         plt.show()
 
+        # Missing data
+        sns.heatmap(data.isnull(), cmap='viridis')
+        plt.show()
+
+        # Target distribution
+        sns.displot(data['SalePrice'], color='g', bins=100);
+        plt.show()
+
+
     print("Data Shape, Sample, info: -------------------")
     print(data.shape)
     print(data.head())
@@ -428,9 +437,6 @@ class HousePricesRegressionEnv:
             print("Data exploration after preprocessing: -------------------")
             explore_data(data, plot=True)
 
-            sns.heatmap(data.isnull(), cmap='viridis')
-            plt.show()
-
         # Univariate analysis
 
         # saleprice_scaled = StandardScaler().fit_transform(data['SalePrice'][:,np.newaxis]);
@@ -474,9 +480,13 @@ class HousePricesRegressionEnv:
         elif algorithm == 'yggdf':
             yggdrassil_random_forest(train_ds_pd, valid_ds_pd, test, ids, self.exp_name, SEED, submit, tune=tune)
         elif algorithm == 'grb':
-            gradient_booster(train_ds_pd, valid_ds_pd, test, ids, self.exp_name, SEED)
+            gradient_booster(train_ds_pd, valid_ds_pd, test, ids, self.exp_name, SEED, submit, tune=tune)
         elif algorithm == 'ensemble':
-            ensemble_model(train_ds_pd, valid_ds_pd, test, ids, self.exp_name, SEED, submit)
+            ensemble_model(train_ds_pd, valid_ds_pd, test, ids,
+                           self.exp_name,
+                           SEED=SEED,
+                           submit=submit,
+                           from_scratch=True)
         elif algorithm == 'NN':
             tf_neural_network(train_ds_pd, valid_ds_pd, test, ids, self.exp_name)
         else:

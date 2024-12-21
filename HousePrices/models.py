@@ -6,23 +6,29 @@ import matplotlib
 import numpy as np
 import pandas as pd
 import cupy as cp
+import sklearn.metrics
 
 from scipy.stats import stats
 from sklearn.inspection import permutation_importance
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 # import category_encoders as ce
 
+from sklearn.linear_model import RidgeCV
 from sklearn.cluster import DBSCAN
 from sklearn.ensemble import RandomForestRegressor, IsolationForest, GradientBoostingRegressor
 from lightgbm import LGBMRegressor
-import xgboost
-from sklearn.metrics._dist_metrics import parse_version
-from tensorflow.python import ops
-from xgboost import XGBRegressor
 
-from sklearn.model_selection import RandomizedSearchCV
+import xgboost as xgb
+
+from sklearn.metrics._dist_metrics import parse_version
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import RobustScaler
+from tensorflow.python import ops
+
+from sklearn.model_selection import RandomizedSearchCV, KFold
 from sklearn.model_selection import GridSearchCV
 # from hyperopt import fmin, tpe, hp
+import optuna
 
 import tensorflow as tf
 # import tensorflow_decision_forests as tfdf
@@ -413,12 +419,44 @@ def yggdrassil_random_forest(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED
             make_submission(model, test, ids, exp_name)
 
 
+def ridge_regression(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit=False, tune=False):
+
+    kf = KFold(n_splits=12, random_state=SEED, shuffle=True)
+
+    ridge_alphas = [1e-10, 1e-8, 9e-4, 7e-4, 5e-4, 3e-4, 1e-4, 1e-3, 5e-2, 1e-2, 0.1, 0.3, 1,
+                    2, 3, 5, 10, 15, 18, 20, 30, 50, 75, 100]
+
+    ridge = make_pipeline(RobustScaler(),
+                          RidgeCV(alphas=ridge_alphas,
+                                  cv=kf,
+                                  scoring='neg_root_mean_squared_log_error',
+                                  gcv_mode='auto',
+                                  store_cv_results=True,
+                                  alpha_per_target=True,
+                                  ),
+                          verbose=True)
+
+    ridge_model = ridge.fit(train_ds_pd, train_ds_pd['SalePrice'])
+
+    print("Ridge Regression: -------------------")
+    train_r2, valid_r2, RMSE = calculate_metrics(ridge_model, train_ds_pd, valid_ds_pd, predict_on_full_set=False,
+                                                 print_predictions=False)
+    print("Train R2: ", train_r2)
+    print("Validation R2: ", valid_r2)
+    print("RMSE: ", RMSE)
+    print()
+
+    print(ridge_model.cv_results_)
+    print(ridge_model.coef_)
+    print(ridge_model.alpha_)
+
+
 def gradient_booster(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit=False, tune=False):
     visualize = True
 
-    xgb = False
+    use_xgb = True
     lgbm = False
-    skl = True
+    use_skl = False
 
     train_y = train_ds_pd['SalePrice']
     train_x = deepcopy(train_ds_pd).drop('SalePrice', axis=1)
@@ -434,7 +472,7 @@ def gradient_booster(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit
 
     # Sklearn Gradient Boosting
 
-    if skl:
+    if use_skl:
 
         if not tune:
 
@@ -498,7 +536,6 @@ def gradient_booster(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit
                     dump(model, f, protocol=5)
 
         else:
-
             parameter_grid = {
                 'n_estimators': [1800, 3500, 4500, 5500],
                 'max_depth': [4],
@@ -526,65 +563,197 @@ def gradient_booster(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit
 
             plt.show()
 
+        if visualize:
+            # xgb.plot_importance(bst, max_num_features=20)
+            # plt.show()
 
+            test_score = np.zeros((params["n_estimators"]), dtype=np.float64)
+            for i, y_pred in enumerate(regressor.staged_predict(valid_x)):
+                test_score[i] = mean_squared_error(valid_y, y_pred)
 
+            fig = plt.figure(figsize=(6, 6))
+            plt.subplot(1, 1, 1)
+            plt.title("Deviance")
+            plt.plot(
+                np.arange(params["n_estimators"]) + 1,
+                regressor.train_score_,
+                "b-",
+                label="Training Set Deviance",
+            )
+            plt.plot(
+                np.arange(params["n_estimators"]) + 1, test_score, "r-", label="Test Set Deviance"
+            )
+            plt.legend(loc="upper right")
+            plt.xlabel("Boosting Iterations")
+            plt.ylabel("Deviance")
+            fig.tight_layout()
+            plt.show()
 
     # XGBoost
 
-    if xgb:
+    if use_xgb:
+
+        accuracy_history = []
+
+        dtrain = xgb.DMatrix(train_x.to_numpy(), label=train_y.to_numpy(), nthread=10)
+        dvalid = xgb.DMatrix(valid_x.to_numpy(), label=valid_y.to_numpy(), nthread=10)
+
+        dtrain.set_float_info("label_lower_bound", train_y.to_numpy())
+        dtrain.set_float_info("label_upper_bound", train_y.to_numpy())
+        dvalid.set_float_info("label_lower_bound", valid_y.to_numpy())
+        dvalid.set_float_info("label_upper_bound", valid_y.to_numpy())
 
         if tune:
 
-            parameter_grid = {
-                'n_estimators': [6000, 2000, ],
-                'max_depth': [5, 7, 10, ],
-                'learning_rate': [0.01, 0.05],
-                'subsample': [0.5, 0.7, 1],
-            }
-            train_x_gpu = cp.asarray(train_x)
-            y_train_y_gpu = cp.asarray(train_y)
+            use_optuna = True
 
-            # Xy = xgboost.QuantileDMatrix(train_x, train_y)
+            if use_optuna:
+                base_params = {'verbosity': 2,
+                               'device': 'cpu',
+                               # 'nthread': -1,
+                               'seed': SEED,
+                               'objective': 'reg:squaredlogerror',
+                               'eval_metric': 'rmse',
+                               'tree_method': 'hist',
+                               'subsample': 0.5}  # Hyperparameters common to all trials
 
-            regressor = XGBRegressor(tree_method="hist", device="cuda", random_state=SEED, verbosity=2)
+                def objective(trial):
+                    params = {'learning_rate': trial.suggest_loguniform('learning_rate', 0.001, 0.7),
+                              'max_depth': trial.suggest_int('max_depth', 2, 14),
+                              'tree_method': trial.suggest_categorical('tree_method', ['hist', 'exact', 'approx']),
+                              'grow_policy': trial.suggest_categorical('grow_policy', ['depthwise', 'lossguide']),
+                              'max_leaves': trial.suggest_int('max_leaves', 0, 32),
+                              'lambda': trial.suggest_loguniform('lambda', 1e-8, 1.0),
+                              'alpha': trial.suggest_loguniform('alpha', 1e-8, 1.0)}  # Search space
 
-            grid_search = GridSearchCV(regressor, parameter_grid, cv=5, scoring='neg_mean_squared_error',
-                                       # n_jobs=4,
-                                       return_train_score=True,
-                                       verbose=3)
+                    params.update(base_params)
 
-            grid_search.fit(train_x_gpu, y_train_y_gpu)
+                    # pruning_callback = optuna.integration.XGBoostPruningCallback(trial, 'reg:squaredlogerror')
 
-            # {'learning_rate': 0.01, 'max_depth': 5, 'n_estimators': 2000, 'subsample': 0.5}
-            print("Best set of hyperparameters: ", grid_search.best_params_)
-            print("Best score: ", grid_search.best_score_)
+                    bst = xgb.train(params, dtrain, num_boost_round=100000,
+                                    evals=[(dtrain, 'train'), (dvalid, 'valid')],
+                                    early_stopping_rounds=150,
+                                    verbose_eval=True,
+                                    # callbacks=[pruning_callback]
+                                    )
 
+                    return bst.best_score
+
+                # Run hyperparameter search
+                study = optuna.create_study(direction='minimize')
+                study.optimize(objective,
+                               n_trials=25000,
+                               n_jobs=11,
+                               show_progress_bar=False)
+
+                print('Completed hyperparameter tuning with best = {}.'.format(study.best_trial.value))
+                params = {}
+                params.update(base_params)
+                params.update(study.best_trial.params)
+
+                # Re-run training with the best hyperparameter combination
+                res: xgb.callback.TrainingCallback.EvalsLog = {}
+
+                print('Re-running the best trial... params = {}'.format(params))
+                bst = xgb.train(params, dtrain,
+                                num_boost_round=10000,
+                                evals=[(dtrain, 'train'), (dvalid, 'valid')],
+                                evals_result=res,
+                                early_stopping_rounds=50,
+                                callbacks=[])
+
+                bst.save_model('HousePrices/saved_models/best_xgb_model.json')
+
+                optuna.visualization.plot_param_importances(study)
+
+                optuna.visualization.plot_parallel_coordinate(study, params=['lambda', 'alpha'])
+
+                # optuna.visualization.plot_intermediate_values(study)
+
+                optuna.visualization.plot_contour(study, params=['lambda', 'alpha'])
+                optuna.visualization.plot_contour(study, params=['learning_rate', 'alpha'])
+
+                if params['eval_metric'] == 'rmsle':
+                    # Plot the performance over iterations
+                    epochs = len(res['train']['rmsle'])
+                    x_axis = range(0, epochs)
+                    plt.figure(figsize=(10, 5))
+                    plt.plot(x_axis, res['train']['rmsle'], label='Train')
+                    plt.plot(x_axis, res['valid']['rmsle'], label='Validation')
+                    plt.legend()
+                    plt.xlabel('Boosting Rounds')
+                    plt.ylabel('RMSLE')
+                    plt.title('XGBoost RMSLE over Boosting Rounds')
+                    plt.show()
+                elif params['eval_metric'] == 'rmse':
+                    # Plot the performance over iterations
+                    epochs = len(res['train']['rmse'])
+                    x_axis = range(0, epochs)
+                    plt.figure(figsize=(10, 5))
+                    plt.plot(x_axis, res['train']['rmse'], label='Train')
+                    plt.plot(x_axis, res['valid']['rmse'], label='Validation')
+                    plt.legend()
+                    plt.xlabel('Boosting Rounds')
+                    plt.ylabel('RMSE')
+                    plt.title('XGBoost RMSE over Boosting Rounds')
+                    plt.show()
+
+
+            # XGB Grid search
+            else:
+                params = {
+                    'n_estimators': [2000, 2500, 3000, 3500],
+                    'max_depth': [5, 7, 10, ],
+                    'learning_rate': [0.1, 0.01, 0.05],
+                    'subsample': [0.5, 0.7, 1],
+                }
+
+                # Xy = xgb.QuantileDMatrix(train_x, train_y)
+
+                regressor = xgb.XGBRegressor(tree_method="hist", device="cuda", random_state=SEED, verbosity=2)
+
+                grid_search = GridSearchCV(regressor, params,
+                                           cv=5,
+                                           scoring='neg_root_mean_squared_log_error',
+                                           n_jobs=-1,
+                                           return_train_score=True,
+                                           verbose=3)
+
+                # xy = xgb.QuantileDMatrix(train_x_gpu, y_train_y_gpu)
+
+                grid_search.fit(train_x, train_y)
+
+                # {'learning_rate': 0.01, 'max_depth': 5, 'n_estimators': 2000, 'subsample': 0.5}
+                print("Best set of hyperparameters: ", grid_search.best_params_)
+                print("Best score: ", grid_search.best_score_)
+
+        # Train with best hyperparameters
         else:
-            pass
 
-    if visualize:
+            # params = {'verbosity': 2, 'device': 'cpu', 'seed': 476, 'objective': 'reg:squaredlogerror',
+            # 'eval_metric': 'rmsle',
+            # 'tree_method': 'hist', 'subsample': 0.5, 'learning_rate': 0.39999059175486584,
+            # 'max_depth': 3, 'lambda': 7.2678426000529765e-06, 'alpha': 5.314611249886768e-07}
 
-        test_score = np.zeros((params["n_estimators"],), dtype=np.float64)
-        for i, y_pred in enumerate(regressor.staged_predict(valid_x)):
-            test_score[i] = mean_squared_error(valid_y, y_pred)
+            params = {
+                'n_estimators': 2000,
+                'max_depth': 5,
+                'learning_rate': 0.01,
+                'subsample': 0.5,
+                'random_state': SEED,
+                'verbosity': 2
+            }
 
-        fig = plt.figure(figsize=(6, 6))
-        plt.subplot(1, 1, 1)
-        plt.title("Deviance")
-        plt.plot(
-            np.arange(params["n_estimators"]) + 1,
-            regressor.train_score_,
-            "b-",
-            label="Training Set Deviance",
-        )
-        plt.plot(
-            np.arange(params["n_estimators"]) + 1, test_score, "r-", label="Test Set Deviance"
-        )
-        plt.legend(loc="upper right")
-        plt.xlabel("Boosting Iterations")
-        plt.ylabel("Deviance")
-        fig.tight_layout()
-        plt.show()
+            regressor = xgb.XGBRegressor(**params)
+
+            bst = regressor.fit(train_x, train_y)
+
+            print("XGBoost Regressor: -------------------")
+            train_r2, valid_r2, RMSE = calculate_metrics(bst, train_ds_pd, valid_ds_pd, predict_on_full_set=False,
+                                                         print_predictions=True)
+            print("Train R2: ", train_r2)
+            print("Validation R2: ", valid_r2)
+            print("RMSE: ", RMSE)
 
 
 def tf_neural_network(train_ds_pd, valid_ds_pd, test, ids, exp_name, submit=False):
