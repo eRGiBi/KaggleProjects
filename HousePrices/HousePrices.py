@@ -24,7 +24,8 @@ from ExperimentLogger import ExperimentLogger
 import warnings
 
 from HousePrices.ensemble_models import ensemble_model
-from HousePrices.models import yggdrassil_random_forest, tf_neural_network, sklearn_random_forest, gradient_booster
+from HousePrices.models import yggdrassil_random_forest, tf_neural_network, sklearn_random_forest, gradient_booster, \
+    ridge_regression
 
 
 # from HousePrices.models import tf_decision_forests
@@ -488,6 +489,8 @@ class HousePricesRegressionEnv:
                            submit=submit,
                            from_scratch=True)
         elif algorithm == 'NN':
-            tf_neural_network(train_ds_pd, valid_ds_pd, test, ids, self.exp_name)
+            tf_neural_network(train_ds_pd, valid_ds_pd, test, ids, self.exp_name, SEED)
+        elif algorithm == 'ridge':
+            ridge_regression(train_ds_pd, valid_ds_pd, test, ids, self.exp_name, SEED)
         else:
             print("Invalid algorithm.")
