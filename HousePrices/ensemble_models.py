@@ -6,17 +6,19 @@ import ydf
 from matplotlib import pyplot as plt
 from scipy.optimize import minimize
 from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor, HistGradientBoostingRegressor
-from sklearn.metrics import mean_squared_error, r2_score, mean_squared_log_error
+from sklearn.metrics import mean_squared_error, r2_score, mean_squared_log_error, make_scorer
 from sklearn.model_selection import cross_val_score, KFold
 from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import RobustScaler
+from sklearn.preprocessing import RobustScaler, MinMaxScaler
 
 from sklearn.kernel_ridge import KernelRidge
 from sklearn.linear_model import Ridge, RidgeCV
 from sklearn.linear_model import ElasticNet, ElasticNetCV
 from sklearn.svm import SVR
 from mlxtend.regressor import StackingCVRegressor
+
 import lightgbm as lgb
+import xgboost as xgb
 from lightgbm import LGBMRegressor
 from xgboost import XGBRegressor
 
@@ -56,28 +58,42 @@ def calculate_metrics(model, train_ds_pd, valid_ds_pd, label='SalePrice'):
     return train_r2, valid_r2, RMSE
 
 
-def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, from_scratch=False, SEED=476, submit=False):
+def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, from_scratch=True, SEED=476, submit=False):
     """
         Ensemble model using StackingCVRegressor from mlxtend library.
 
     """
-    train_labels = train_ds_pd['SalePrice']
-    train_x = train_ds_pd.drop(['SalePrice'], axis=1)
+    train_targets = np.array(train_ds_pd['SalePrice'])
+    train_x = np.array(train_ds_pd.drop(['SalePrice'], axis=1))
 
-    valid_labels = valid_ds_pd['SalePrice']
-    valid_x = valid_ds_pd.drop(['SalePrice'], axis=1)
+    valid_targets = np.array(valid_ds_pd['SalePrice'])
+    valid_x = np.array(valid_ds_pd.drop(['SalePrice'], axis=1))
 
     kf = KFold(n_splits=12, random_state=SEED, shuffle=True)
 
-    def cv_rmse(model, X=train_x, labels=train_labels):
-        rmse = np.sqrt(-cross_val_score(model, X, labels, scoring="neg_mean_squared_error", cv=kf))
+    def cv_rmse(model, X=train_x, targets=train_targets):
+        rmse = np.sqrt(-cross_val_score(model, X, targets,
+                                        scoring="neg_mean_squared_error",
+                                        cv=kf,
+                                        verbose=0,
+                                        error_score='raise',
+                                        n_jobs=-1))
         return rmse
 
-    def manual_cross_val_rmse(model, X=train_x, labels=train_labels):
+    def cv_rmsle(model, X=train_x, targets=train_targets):
+        rmsle = -cross_val_score(model, X, targets,
+                                 scoring="neg_root_mean_squared_log_error",
+                                 cv=kf,
+                                 verbose=0,
+                                 error_score='raise',
+                                 n_jobs=-1)
+        return rmsle
+
+    def manual_cross_val_rmse(model, X=train_x, targets=train_targets):
         rmse = []
         for train_index, test_index in kf.split(X):
             X_train, X_test = X.iloc[train_index], X.iloc[test_index]
-            y_train, y_test = labels.iloc[train_index], labels.iloc[test_index]
+            y_train, y_test = targets.iloc[train_index], targets.iloc[test_index]
             model.fit(X_train, y_train)
             y_pred = model.predict(X_test)
             rmse.append(np.sqrt(mean_squared_error(y_test, y_pred)))
@@ -89,41 +105,84 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, from_scratch=F
     def np_rmsle(y_true: np.array, y_pred: np.array) -> np.float64:
         return np.sqrt(np.mean(np.square(np.log1p(y_pred) - np.log1p(y_true))))
 
+    rmsle_scorer = make_scorer(lambda y_true, y_pred: np.sqrt(mean_squared_log_error(y_true + 1, y_pred + 1)),
+                               greater_is_better=False)
+
     lightgbm = LGBMRegressor(objective='regression',
                              num_leaves=6,
-                             learning_rate=0.01,
+                             learning_rate=0.1,
                              n_estimators=4000,
-                             max_bin=200,
+                             max_bin=250,
                              bagging_fraction=0.5,
+                             subsample=0.5,
+                             subsample_freq=1,
                              bagging_freq=4,
-                             bagging_seed=8,
-                             feature_fraction=0.2,
-                             feature_fraction_seed=8,
+                             bagging_seed=SEED + 1,
+                             feature_fraction=0.8,
+                             feature_fraction_seed=SEED + 2,
                              min_sum_hessian_in_leaf=11,
+                             reg_alpha=0.3,
+                             reg_lambda=0.015,
+                             n_jobs=-1,
                              verbose=-1,
                              random_state=SEED)
 
-    xgboost = XGBRegressor(learning_rate=0.01,
-                           n_estimators=3000,
-                           max_depth=4,
-                           min_child_weight=0,
-                           gamma=0.6,
-                           subsample=0.5,
-                           colsample_bytree=0.7,
-                           objective='reg:squarederror',
-                           nthread=-1,
-                           scale_pos_weight=1,
-                           seed=SEED,
-                           reg_alpha=6e-5,
-                           random_state=SEED)
+    # xgb_params = {'verbosity': 0, 'device': 'cpu', 'seed': SEED,
+    #               'objective': 'reg:squaredlogerror', 'eval_metric': 'rmsle',
+    #               'tree_method': 'hist', 'learning_rate': 0.63, 'max_depth': 28, 'grow_policy': 'depthwise',
+    #               'subsample': 1, 'max_leaves': 17, 'lambda': 0.015, 'alpha': 0.3}
+    #
+    # dtrain = xgb.DMatrix(train_x.to_numpy(), label=train_targets.to_numpy(), nthread=11)
+    # dvalid = xgb.DMatrix(valid_x.to_numpy(), label=valid_targets.to_numpy(), nthread=11)
+    #
+    # xgboost = XGBRegressor(**xgb_params,
+    #                        num_boost_round=10000,
+    #                        evals=[(dtrain, 'train'), (dvalid, 'valid')],
+    #                        early_stopping_rounds=50,
+    #                        )
 
-    ridge_alphas = [1e-10, 1e-8, 9e-4, 7e-4, 5e-4, 3e-4, 1e-4, 1e-3, 5e-2, 1e-2, 0.1, 0.3, 1,
-                    2, 3, 5, 10, 15, 18, 20, 30, 50, 75, 100]
-    ridge = make_pipeline(RobustScaler(),
-                          RidgeCV(alphas=ridge_alphas, cv=kf,
-                                  scoring='neg_mean_squared_error',
-                                  gcv_mode='auto'),
-                          verbose=False)
+    xgb_params = {
+        'verbosity': 0,
+        'device': 'cpu',
+        'seed': SEED,
+        'objective': 'reg:squaredlogerror',
+        'eval_metric': 'rmsle',
+        'learning_rate': 0.63,
+        'max_depth': 28,
+        'grow_policy': 'depthwise',
+        'subsample': 1,
+        'max_leaves': 17,
+        'lambda': 0.015,
+        'alpha': 0.3
+    }
+
+    xgboost = XGBRegressor(
+        **xgb_params,
+        n_estimators=200,
+        # early_stopping_rounds=50,
+        # eval_set=[(valid_x, valid_targets)],
+    )
+
+    ridge_alphas = np.array([
+        0.1, 0.5, 10, 15, 18, 20, 22,
+        500, 1000, 2000, 3000, 5000, 10000, 100000,
+    ], dtype=np.float32)
+
+    ridge = make_pipeline(
+        RobustScaler(with_centering=False,
+                     with_scaling=True,
+                     quantile_range=(25.0, 75.0)),
+        MinMaxScaler(feature_range=(0, 1)),
+
+        RidgeCV(alphas=ridge_alphas,
+                cv=kf,
+                scoring="neg_root_mean_squared_error",
+                fit_intercept=False,
+                gcv_mode='auto',
+                store_cv_results=False,
+                alpha_per_target=False,
+                ),
+        verbose=False)
 
     # sklearn Gradient Boosting
     skl_gbr = GradientBoostingRegressor(n_estimators=3500,
@@ -151,85 +210,70 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, from_scratch=F
                                    random_state=SEED,
                                    verbose=0)
 
-    # nn_model = tf.keras.models.load_model('HousePrices/saved_models/nn_model_experiment_11.19.2024_22.09.46.tf')
-
     stack_gen = StackingCVRegressor(regressors=(xgboost, lightgbm,
-                                                # nn_model,
                                                 ridge, skl_gbr, skl_rf),
                                     meta_regressor=xgboost,
                                     cv=5,
                                     use_features_in_secondary=True,
+                                    refit=True,
                                     shuffle=True,
                                     random_state=SEED,
                                     n_jobs=-1,
-                                    verbose=1)
-
-    print()
-    print('Cross-validated RMSE scores:\n')
-
-    scores = {}
-
-    score = cv_rmse(lightgbm)
-    scores['lightgbm'] = (score.mean(), score.std())
-    print("LightGBM: {}".format(scores['lightgbm'], ))
-
-    score = cv_rmse(xgboost)
-    scores['xgboost'] = (score.mean(), score.std())
-    print("XGBoost: {}".format(scores['xgboost']))
-
-    score = cv_rmse(ridge)
-    scores['ridge'] = (score.mean(), score.std())
-    print("Ridge: {}".format(scores['ridge']))
-
-    score = cv_rmse(skl_rf)
-    scores['skl_rf'] = (score.mean(), score.std())
-    print("sklearn Random Forest: {}".format(scores['skl_rf']))
-
-    score = cv_rmse(skl_gbr)
-    scores['sklearn_gbr'] = (score.mean(), score.std())
-    print("sklearn grb: {}".format(scores['sklearn_gbr']))
-
-    score = cv_rmse(stack_gen)
-    scores['stack_gen'] = (score.mean(), score.std())
-    print("Stacked model: {}".format(scores['stack_gen']))
-
-    # score = cv_rmse(nn_model)
-    # print("NN model: {:.4f} ({:.4f})".format(score.mean(), score.std()))
-    # scores['nn'] = (score.mean(), score.std())
-
-    print("\nModel fitting...\n")
+                                    verbose=2)
 
     if from_scratch:
+        print()
+        print('Cross-validated RMSE scores:\n')
+
+        scores = {}
+
+        for regressor in [lightgbm, xgboost, ridge, skl_rf, skl_gbr, stack_gen]:
+            score = cv_rmse(regressor)
+            scores[regressor.__class__.__name__] = (score.mean(), score.std())
+            print(f"{regressor.__class__.__name__}: {scores[regressor.__class__.__name__]}")
+
+        print("Model fitting...\n")
 
         print('LightGBM')
-        lgb_model = lightgbm.fit(train_x, train_labels,
-                                 eval_set=[(valid_x, valid_labels)])
+        lgb_model = lightgbm.fit(train_x, train_targets,
+                                 eval_set=[(valid_x, valid_targets)])
         # calculate_metrics(lgb_model, train_ds_pd, valid_ds_pd)
 
         print('XGBoost')
-        xgb_model = xgboost.fit(train_x, train_labels)
+        xgb_model = xgboost.fit(train_x, train_targets)
         # calculate_metrics(xgb_model, train_ds_pd, valid_ds_pd)
 
         print('Ridge')
-        ridge_model = ridge.fit(train_x, train_labels)
+
+        ridge_model = ridge.fit(np.concatenate((train_x, valid_x), axis=0), np.concatenate((train_targets, valid_targets), axis=0))
         # calculate_metrics(ridge_model, train_ds_pd, valid_ds_pd)
+        ridgecv_step = ridge.named_steps['ridgecv']
+
+        print("Best alpha: ", ridgecv_step.alpha_)
+        print("Best score: ", ridgecv_step.best_score_)
 
         print('sklearn Random Forest')
-        rf_model = skl_rf.fit(train_x, train_labels)
+        rf_model = skl_rf.fit(train_x, train_targets)
         # calculate_metrics(rf_model, train_ds_pd, valid_ds_pd)
 
         print('sklearn Gradient Boosting')
-        skl_gbr_model = skl_gbr.fit(train_x, train_labels)
+        skl_gbr_model = skl_gbr.fit(train_x, train_targets)
         # calculate_metrics(gbr_model, train_ds_pd, valid_ds_pd)
 
         print('mlxtend CVStacking')
-        stack_gen_model = stack_gen.fit(np.array(train_x), np.array(train_labels),
+        stack_gen_model = stack_gen.fit(np.array(train_x), np.array(train_targets),
                                         sample_weight=None)
-        print(stack_gen.score(np.array(valid_x), np.array(valid_labels)))
         # calculate_metrics(stack_gen_model, train_ds_pd, valid_ds_pd)
 
     else:
         print('Loading models...')
+
+        print('LightGBM')
+
+        lgb_model = pickle.load(open("HousePrices/saved_models/best_lgb_model.joblib", "rb"))
+
+        print('XGBoost')
+        xgb_model = xgboost.load_model('HousePrices/saved_models/best_xgb_model.json')
 
         print("sklearn Random Forest")
         rf_model = pickle.load(open("HousePrices/saved_models/best_skl_rf_model.joblib", "rb"))
@@ -257,7 +301,7 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, from_scratch=F
 
         # np.sqrt(mean_squared_error(y_true, blended_predictions(X, weights)))
 
-        return np.sqrt(np.mean(np.square(np.log1p(blended_predictions(X, weights) + 1) - np.log1p(y_true + 1))))
+        return np.sqrt(np.mean(np.square(np.log1p(blended_predictions(X, weights)) - np.log1p(y_true))))
 
     # Constraints: Weights sum to 1
     constraints = ({'type': 'eq', 'fun': lambda w: np.sum(w) - 1})
@@ -268,7 +312,7 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, from_scratch=F
     result = minimize(
         objective,
         x0=initial_weights,
-        args=(valid_x, valid_labels),
+        args=(valid_x, valid_targets),
         method='SLSQP',
         bounds=bounds,
         constraints=constraints
@@ -278,20 +322,24 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, from_scratch=F
     print("Optimal weights:", optimal_weights)
 
     # # Refitting StackGen model with optimal weights
-    # opt_stack_gen = stack_gen.fit(np.array(train_x), np.array(train_labels),
+    # opt_stack_gen = stack_gen.fit(np.array(train_x), np.array(train_targets),
     #                               sample_weight=None)
     #
     # score = cv_rmse(opt_stack_gen)
     # scores['opt_stack_gen'] = (score.mean(), score.std())
-    # print(stack_gen.score(np.array(valid_x), np.array(valid_labels)))
+    # print(stack_gen.score(np.array(valid_x), np.array(valid_targets)))
+
+    blended_score = rmse(train_targets,  blended_predictions(train_x, initial_weights))
+    scores['original_blended'] = (blended_score, 0)
+    print("Original Blended score: {:.4f} ({:.4f})".format(blended_score.mean(), blended_score.std()))
 
     train_predictions = blended_predictions(train_x, optimal_weights)
 
-    blended_score = rmse(train_labels, train_predictions)
+    blended_score = rmse(train_targets, train_predictions)
     scores['blended'] = (blended_score, 0)
     print("Blended score: {:.4f} ({:.4f})".format(blended_score.mean(), blended_score.std()))
 
-    train_score = np_rmsle(train_labels, train_predictions)
+    train_score = np_rmsle(train_targets, train_predictions)
     print('Root Mean Squared Logarithmic Error (RMSLE) score on the training dataset:')
     print(train_score)
 
@@ -303,6 +351,7 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, from_scratch=F
     # Plotting scores
     sns.set_style("white")
     fig = plt.figure(figsize=(24, 12))
+
     ax = sns.pointplot(x=list(scores.keys()), y=[score for score, _ in scores.values()],
                        # markers=['o'],
                        # linestyles=['-']
@@ -322,7 +371,7 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, from_scratch=F
     plt.tick_params(axis='x', labelsize=13.5)
     plt.tick_params(axis='y', labelsize=12.5)
 
-    plt.title('Scores of Models', size=15)
+    plt.title('Scores of Models', size=20)
     plt.show()
 
     # Submission
