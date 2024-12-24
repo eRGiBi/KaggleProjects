@@ -11,7 +11,8 @@ from numpy import sort
 
 from scipy.stats import stats
 from sklearn.inspection import permutation_importance
-from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error, make_scorer, mean_squared_log_error
+from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error, make_scorer, mean_squared_log_error, \
+    root_mean_squared_error
 # import category_encoders as ce
 
 from sklearn.linear_model import RidgeCV
@@ -442,7 +443,7 @@ def ridge_regression(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit
         1e-3, 3e-3, 5e-3, 7e-3, 9e-3,
         1e-2, 3e-2, 5e-2, 7e-2, 9e-2,
         0.1, 0.3, 0.5, 0.7, 0.9,
-        1, 2, 3, 5, 10, 15, 18, 19,
+        1, 2, 3, 5, 7, 10, 15, 18, 19,
         20, 22, 25, 30, 50, 60, 67, 75, 80, 90, 100,
         500, 1000, 2000, 3000, 5000, 10000, 20000, 30000, 50000, 100000,
     ], dtype=np.float64)
@@ -455,14 +456,14 @@ def ridge_regression(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit
         RobustScaler(with_centering=False,
                      with_scaling=True,
                      quantile_range=(25.0, 75.0)),
-                MinMaxScaler(feature_range=(0, 1)),
+        MinMaxScaler(feature_range=(0, 1)),
 
         RidgeCV(alphas=ridge_alphas,
-                cv=None,
-                scoring=rmsle_scorer,
+                cv=kf,
+                scoring="neg_root_mean_squared_error",
                 fit_intercept=False,
                 gcv_mode='auto',
-                store_cv_results=True,
+                store_cv_results=False,
                 alpha_per_target=False,
                 ),
         verbose=True)
@@ -471,8 +472,11 @@ def ridge_regression(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit
 
     fitted_ridge_model = ridge_pipeline.fit(train_x, train_y)
 
+    with open("HousePrices/saved_models/best_ridge_pipline.joblib", "wb") as f:
+        dump(fitted_ridge_model, f, protocol=5)
+
     print()
-    print("Ridge Regression: -------------------")
+    print("Regression Results: -------------------")
     train_r2, valid_r2, RMSE = calculate_metrics(fitted_ridge_model, train_ds_pd, valid_ds_pd,
                                                  predict_on_full_set=False,
                                                  print_predictions=False)
@@ -485,34 +489,36 @@ def ridge_regression(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit
 
     # Cross-validation results
 
-    cv_results = ridgecv_step.cv_results_
+    if ridgecv_step.get_params()['store_cv_results']:
 
-    mean_test_scores = -np.mean(cv_results, axis=0)
+        cv_results = ridgecv_step.cv_results_
 
-    for i, score in enumerate(mean_test_scores):
-        print(f"Alpha: {ridge_alphas[i]}, MSE: {score}")
+        mean_test_scores = -np.mean(cv_results, axis=0)
 
-    plt.figure(figsize=(10, 5))
-    plt.plot(ridge_alphas, mean_test_scores, marker="o", color="b", label="Mean Test Score")
-    plt.xscale("log")
-    plt.xlabel("Alpha on log scale")
-    plt.ylabel("Mean Test Score (MSE)")
-    plt.title("Cross-Validation Results")
-    plt.grid(True, which="both", linestyle="--", linewidth=0.5)
-    plt.legend()
-    plt.show()
+        for i, score in enumerate(mean_test_scores):
+            print(f"Alpha: {ridge_alphas[i]}, MSE: {score}")
 
-    # coefs = ridgecv_step.coef_
-    # features = train_ds_pd.drop('SalePrice', axis=1).columns
+        plt.figure(figsize=(10, 5))
+        plt.plot(ridge_alphas, mean_test_scores, marker="o", color="b", label="Mean Test Score")
+        plt.xscale("log")
+        plt.xlabel("Alpha on log scale")
+        plt.ylabel("Mean Test Score (MSE)")
+        plt.title("Cross-Validation Results")
+        plt.grid(True, which="both", linestyle="--", linewidth=0.5)
+        plt.legend()
+        plt.show()
 
-    # # Plot coefficients
-    # plt.figure(figsize=(10, 8))
-    # plt.barh(features, coefs, color="skyblue", edgecolor="k")
-    # plt.xlabel("Coefficient Value")
-    # plt.ylabel("Feature")
-    # plt.title("Ridge Regression Coefficients")
-    # plt.tight_layout()
-    # plt.show()
+        coefs = ridgecv_step.coef_
+        features = train_ds_pd.drop('SalePrice', axis=1).columns[:20]
+
+        # Plot coefficients
+        plt.figure(figsize=(10, 8))
+        plt.barh(features, coefs, color="skyblue", edgecolor="k")
+        plt.xlabel("Coefficient Value")
+        plt.ylabel("Feature")
+        plt.title("Ridge Regression Coefficients")
+        plt.tight_layout()
+        plt.show()
 
 
 def gradient_booster(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit=False, tune=False):
@@ -667,78 +673,128 @@ def gradient_booster(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit
         dvalid.set_float_info("label_lower_bound", valid_y.to_numpy())
         dvalid.set_float_info("label_upper_bound", valid_y.to_numpy())
 
+        eval_callback = xgb.callback.EvaluationMonitor(rank=0, period=5, show_stdv=True)
+        early_stop = xgb.callback.EarlyStopping(
+            rounds=100,
+            # min_delta=1e-3,
+            save_best=True,
+            maximize=False,
+            data_name="dvalid",
+            metric_name="rmsle",
+        )
+        learning_rates = [0.3, 0.1]
+        learning_rate_scheduler = xgb.callback.LearningRateScheduler(learning_rates)
+
         if tune:
 
             use_optuna = True
+            use_skl_api = True
 
             if use_optuna:
-                base_params = {'verbosity': 1,
-                               'device': 'cpu',
-                               'seed': SEED,
-                               'objective': 'reg:squaredlogerror',
-                               'eval_metric': 'rmsle',
-                               'tree_method': 'hist',
-                               # 'subsample': 0.5
-                               }  # Hyperparameters common to all trials
 
-                # pruning_callback = optuna.integration.XGBoostPruningCallback(trial, 'reg:squaredlogerror')
-                eval_callback = xgb.callback.EvaluationMonitor(rank=0, period=2, show_stdv=True)
-                es = xgb.callback.EarlyStopping(
-                    rounds=10,
-                    min_delta=1e-3,
-                    save_best=True,
-                    maximize=False,
-                    data_name="xgb_validation",
-                    metric_name="rmsle",
-                )
-                learning_rates = [0.3, 0.1]
-                learning_rate_scheduler = xgb.callback.LearningRateScheduler(learning_rates)
+                base_xgb_params = {'verbosity': 1,
+                                   'device': 'cpu',
+                                   'seed': SEED,
+                                   'objective': 'reg:squarederror',
+                                   'eval_metric': 'rmse',
+                                   'tree_method': 'hist',
+                                   'scale_pos_weight': 1,
+                                   }
+
+                base_skl_api_params = {'verbosity': 1,
+                                       'device': 'cpu',
+                                       'random_state': SEED,
+                                       'objective': 'reg:squarederror',
+                                       'eval_metric': root_mean_squared_error,
+                                       'importance_type': 'weight',
+                                       'scale_pos_weight': 1,
+                                       'n_jobs': 11,
+                                       } # Hyperparameters common to all trials
 
                 def objective(trial):
-                    params = {'learning_rate': trial.suggest_float('learning_rate', 0.001, 0.7, log=True),
-                              'max_depth': trial.suggest_int('max_depth', 2, 64),
-                              'tree_method': trial.suggest_categorical('tree_method', ['hist', 'exact', 'approx']),
-                              'grow_policy': trial.suggest_categorical('grow_policy', ['depthwise', 'lossguide']),
-                              'subsample': trial.suggest_float('subsample', 0.5, 1.0),
-                              'max_leaves': trial.suggest_int('max_leaves', 2, 32),
-                              'lambda': trial.suggest_float('lambda', 1e-2, 1.0, log=True),
-                              'alpha': trial.suggest_float('alpha', 1e-2, 1.0, log=True)}  # Search space
 
-                    params.update(base_params)
+                    pruning_callback = optuna.integration.XGBoostPruningCallback(trial, 'reg:squaredlogerror')
 
-                    bst = xgb.train(params, dtrain, num_boost_round=10000,
-                                    evals=[(dtrain, 'train'), (dvalid, 'valid')],
-                                    early_stopping_rounds=50,
-                                    verbose_eval=True,
-                                    callbacks=[
-                                        eval_callback,
-                                        # pruning_callback,
-                                    ])
+                    if use_skl_api:
+                        params = {'n_estimators': trial.suggest_int('n_estimators', 1000, 30000),
+                                  'learning_rate': trial.suggest_float('learning_rate', 0.001, 0.1, log=True),
+                                  'max_depth': trial.suggest_int('max_depth', 2, 16),
+                                  'tree_method': trial.suggest_categorical('tree_method', ['hist', 'exact']),
+                                  'grow_policy': trial.suggest_categorical('grow_policy', ['depthwise', 'lossguide']),
+                                  'subsample': trial.suggest_float('subsample', 0.5, 1.0),
+                                  'colsample_bytree': trial.suggest_float('colsample_bytree', 0.5, 1.0),
+                                  'max_leaves': trial.suggest_int('max_leaves', 2, 64),
+                                  'min_child_weight': 0, # trial.suggest_float('min_child_weight', 1e-2, 3.0, log=True),
+                                  'gamma': trial.suggest_float('gamma', 0.0, 1.0),
+                                  'reg_lambda': trial.suggest_float('lambda', 1e-2, 1.0, log=True),
+                                  'reg_alpha': trial.suggest_float('alpha', 1e-6, 0.01, log=True)}  # Search space
 
-                    return bst.best_score
+                        params.update(base_skl_api_params)
+
+                        regressor = xgb.XGBRegressor(**params,
+                                                     callbacks=[early_stop])
+
+                        regressor.fit(train_x, train_y)
+
+                        return rmse(valid_y, regressor.predict(valid_x))
+
+                    else:
+                        params = {'num_boost_round': trial.suggest_int('num_boost_round', 1000, 30000),
+                                  'learning_rate': trial.suggest_float('learning_rate', 0.001, 0.1, log=True),
+                                  'max_depth': trial.suggest_int('max_depth', 2, 16),
+                                  'tree_method': trial.suggest_categorical('tree_method', ['hist', 'exact']),
+                                  'grow_policy': trial.suggest_categorical('grow_policy', ['depthwise', 'lossguide']),
+                                  'subsample': trial.suggest_float('subsample', 0.5, 1.0),
+                                  'max_leaves': trial.suggest_int('max_leaves', 2, 64),
+                                  'min_child_weight': 0,
+                                  # trial.suggest_float('min_child_weight', 1e-2, 3.0, log=True),
+                                  'gamma': trial.suggest_float('gamma', 0.0, 1.0),
+                                  'lambda': trial.suggest_float('lambda', 1e-2, 1.0, log=True),
+                                  'alpha': trial.suggest_float('alpha', 1e-6, 0.01, log=True)}  # Search space
+
+                        params.update(base_xgb_params)
+
+                        bst = xgb.train(params, dtrain,
+                                        # num_boost_round=10000,
+                                        evals=[(dvalid, 'valid')],
+                                        early_stopping_rounds=100,
+                                        verbose_eval=True,
+                                        callbacks=[
+                                            eval_callback,
+                                            # pruning_callback,
+                                        ])
+
+                        return bst.best_score
 
                 # Run hyperparameter search
                 study = optuna.create_study(direction='minimize', study_name=exp_name)
                 study.optimize(objective,
-                               n_trials=10000,
+                               n_trials=200,
                                n_jobs=11,
                                show_progress_bar=False)
 
                 print('Completed hyperparameter tuning with best = {}.'.format(study.best_trial.value))
                 params = {}
-                params.update(base_params)
+                params.update(base_skl_api_params) if use_skl_api else params.update(base_xgb_params)
                 params.update(study.best_trial.params)
 
                 # Re-run training with the best hyperparameter combination
                 res: xgb.callback.TrainingCallback.EvalsLog = {}
 
                 print('Re-running the best trial... params = {}'.format(params))
-                bst = xgb.train(params, dtrain,
-                                num_boost_round=10000,
-                                evals=[(dtrain, 'train'), (dvalid, 'valid')],
-                                evals_result=res,
-                                early_stopping_rounds=50,
-                                callbacks=[eval_callback])
+                if use_skl_api:
+                    bst = xgb.XGBRegressor(**params)
+                    bst.fit(train_x, train_y,
+                            eval_set=[(valid_x, valid_y)],
+                            verbose=True, )
+
+                else:
+                    bst = xgb.train(params, dtrain,
+                                    num_boost_round=10000,
+                                    evals=[(dvalid, 'valid')],
+                                    evals_result=res,
+                                    early_stopping_rounds=500,
+                                    callbacks=[eval_callback])
 
                 bst.save_model('HousePrices/saved_models/best_xgb_model.json')
 
@@ -752,7 +808,6 @@ def gradient_booster(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit
                 optuna.visualization.plot_contour(study, params=['learning_rate', 'alpha'])
 
                 if params['eval_metric'] == 'rmsle':
-                    # Plot the performance over iterations
                     epochs = len(res['train']['rmsle'])
                     x_axis = range(0, epochs)
                     plt.figure(figsize=(10, 5))
@@ -764,7 +819,6 @@ def gradient_booster(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit
                     plt.title('XGBoost RMSLE over Boosting Rounds')
                     plt.show()
                 elif params['eval_metric'] == 'rmse':
-                    # Plot the performance over iterations
                     epochs = len(res['train']['rmse'])
                     x_axis = range(0, epochs)
                     plt.figure(figsize=(10, 5))
@@ -807,36 +861,53 @@ def gradient_booster(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit
         # Train with best hyperparameters
         else:
 
-            # params = {'verbosity': 2, 'device': 'cpu', 'seed': 476, 'objective': 'reg:squaredlogerror',
-            # 'eval_metric': 'rmsle',
-            # 'tree_method': 'hist', 'subsample': 0.5, 'learning_rate': 0.39999059175486584,
-            # 'max_depth': 3, 'lambda': 7.2678426000529765e-06, 'alpha': 5.314611249886768e-07}
+            params = {'verbosity': 3, 'device': 'cpu', 'seed': 476, 'objective': 'reg:linear',
+                      'eval_metric': 'rmse', 'tree_method': 'exact', 'scale_pos_weight': 1,
+                      'n_estimators': 5068, 'learning_rate': 0.01,
+                      'max_depth': 12, 'grow_policy': 'lossguide',
+                      'subsample': 1,
+                      'max_leaves': 31, 'gamma': 0.24, 'lambda': 0.0135,
+                      'alpha': 0.0077}
 
-            params = {
-                'n_estimators': 10000,
-                'learning_rate': 0.6475,
-                'subsample': 0.5,
-                'grow_policy': 'lossguide',
-                'max_depth': 13,
-                'max_leaves': 14,
-                'random_state': SEED,
-                'verbosity': 2
-            }
+            regressor = xgb.XGBRegressor(**params
+                                         # learning_rate=0.01,
+                                         #                          n_estimators=6000,
+                                         #                          max_depth=4,
+                                         #                          min_child_weight=0,
+                                         #                          gamma=0.6,
+                                         #                          subsample=0.7,
+                                         #                          colsample_bytree=0.7,
+                                         #                          objective='reg:linear',
+                                         #                          nthread=-1,
+                                         #                          scale_pos_weight=1,
+                                         #                          seed=SEED,
+                                         #                          reg_alpha=0.00006,
+                                         )
 
-            regressor = xgb.XGBRegressor(**params)
+            bst = regressor.fit(train_x, train_y,
+                                eval_set=[(train_x, train_y), (valid_x, valid_y)],
+                                verbose=True,
+                                )
 
-            bst = regressor.train(params, dtrain, num_boost_round=10000,
-                                  evals=[(dtrain, 'train'), (dvalid, 'valid')],
-                                  early_stopping_rounds=50,
-                                  verbose_eval=True,
-                                  )
-
-            print("XGBoost Regressor: -------------------")
+            print("XGBoost Regressor Results: -------------------")
             train_r2, valid_r2, RMSE = calculate_metrics(bst, train_ds_pd, valid_ds_pd, predict_on_full_set=False,
                                                          print_predictions=True)
             print("Train R2: ", train_r2)
             print("Validation R2: ", valid_r2)
             print("RMSE: ", RMSE)
+
+            # Visualize training history
+            if visualize:
+                epochs = len(bst.evals_result()['validation_0']['rmse'])
+                x_axis = range(0, epochs)
+                plt.figure(figsize=(10, 5))
+                plt.plot(x_axis, bst.evals_result()['validation_0']['rmse'], label='Train')
+                plt.plot(x_axis, bst.evals_result()['validation_1']['rmse'], label='Validation')
+                plt.legend()
+                plt.xlabel('Boosting Rounds')
+                plt.ylabel('RMSE')
+                plt.title('XGBoost RMSE over Boosting Rounds')
+                plt.show()
 
 
 def tf_neural_network(train_ds_pd, valid_ds_pd, test, ids, exp_name, submit=False):
