@@ -27,42 +27,12 @@ import tensorflow as tf
 
 import seaborn as sns
 
-
-def calculate_metrics(model, train_ds_pd, valid_ds_pd, label='SalePrice'):
-    train_ds_pd = train_ds_pd.drop([label], axis=1)
-    valid_ds_pd = valid_ds_pd.drop([label], axis=1)
-
-    train_predictions = model.predict(train_ds_pd)
-    for i in range(10):
-        print(f"Train Prediction: {train_predictions[i]}, SalePrice: {train_ds_pd[label].iloc[i]}")
-    print()
-
-    train_r2 = r2_score(train_ds_pd[label], train_predictions)
-    print(f'Train R-squared: {train_r2 * 100:.2f}%')
-
-    RMSE = np.sqrt(mean_squared_error(train_ds_pd[label], train_predictions, squared=False))
-    print(f'Train RMSE: {RMSE:.2f}')
-    print()
-
-    valid_predictions = model.predict(valid_ds_pd)
-    for i in range(10):
-        print(f"Validation Prediction: {valid_predictions[i]}, SalePrice: {valid_ds_pd[label].iloc[i]}")
-    print()
-
-    valid_r2 = r2_score(valid_ds_pd[label], valid_predictions)
-    print(f'Validation R-squared: {valid_r2 * 100:.2f}%')
-
-    RMSE = np.sqrt(mean_squared_error(valid_ds_pd[label], valid_predictions, squared=False))
-    print(f'Validation RMSE: {RMSE:.2f}')
-    print()
-
-    return train_r2, valid_r2, RMSE
+from metrics import rmse, cv_rmse, np_rmsle
 
 
 def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, from_scratch=True, SEED=476, submit=False):
     """
         Ensemble model using StackingCVRegressor from mlxtend library.
-
     """
     train_targets = np.array(train_ds_pd['SalePrice'])
     train_x = np.array(train_ds_pd.drop(['SalePrice'], axis=1))
@@ -72,43 +42,11 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, from_scratch=T
 
     kf = KFold(n_splits=12, random_state=SEED, shuffle=True)
 
-    def cv_rmse(model, X=train_x, targets=train_targets, params=None):
-        rmse = np.sqrt(-cross_val_score(model, X, targets,
-                                        scoring="neg_mean_squared_error",
-                                        cv=kf,
-                                        params=params,
-                                        verbose=0,
-                                        error_score='raise',
-                                        n_jobs=-1))
-        return rmse
-
-    def cv_rmsle(model, X=train_x, targets=train_targets):
-        rmsle = -cross_val_score(model, X, targets,
-                                 scoring="neg_root_mean_squared_log_error",
-                                 cv=kf,
-                                 verbose=0,
-                                 error_score='raise',
-                                 n_jobs=-1)
-        return rmsle
-
-    def manual_cross_val_rmse(model, X=train_x, targets=train_targets):
-        rmse = []
-        for train_index, test_index in kf.split(X):
-            X_train, X_test = X.iloc[train_index], X.iloc[test_index]
-            y_train, y_test = targets.iloc[train_index], targets.iloc[test_index]
-            model.fit(X_train, y_train)
-            y_pred = model.predict(X_test)
-            rmse.append(np.sqrt(mean_squared_error(y_test, y_pred)))
-        return rmse
-
-    def rmse(y_true, y_pred):
-        return np.sqrt(mean_squared_error(y_true, y_pred))
-
-    def np_rmsle(y_true: np.array, y_pred: np.array) -> np.float64:
-        return np.sqrt(np.mean(np.square(np.log1p(y_pred) - np.log1p(y_true))))
-
     rmsle_scorer = make_scorer(lambda y_true, y_pred: np.sqrt(mean_squared_log_error(y_true + 1, y_pred + 1)),
                                greater_is_better=False)
+    rmse_scorer = make_scorer(lambda y_true, y_pred: np.sqrt(mean_squared_error(y_true, y_pred)))
+
+    # Model declarations
 
     lightgbm = LGBMRegressor(objective='regression',
                              num_leaves=6,
@@ -182,10 +120,6 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, from_scratch=T
         20, 22, 25, 30, 50, 60, 67, 75, 80, 90, 100,
         500, 1000, 2000, 3000, 5000, 10000, 20000, 30000, 50000, 100000,
     ], dtype=np.float64)
-
-    rmsle_scorer = make_scorer(lambda y_true, y_pred: np.sqrt(mean_squared_log_error(y_true + 1, y_pred + 1)),
-                               greater_is_better=False)
-    rmse_scorer = make_scorer(lambda y_true, y_pred: np.sqrt(mean_squared_error(y_true, y_pred)))
 
     ridge_regressor = RidgeCV(alphas=ridge_alphas,
                               cv=None,
@@ -271,7 +205,7 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, from_scratch=T
                                                                                    ignore_implicit_zeros=False,
                                                                                    n_quantiles=1000,
                                                                                    random_state=SEED))
-            score = cv_rmse(regressor)
+            score = cv_rmse(regressor, train_x, train_targets, kf, params=None)
             scores[name] = (score.mean(), score.std())
 
         print("Model fitting...\n")
