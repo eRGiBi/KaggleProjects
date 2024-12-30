@@ -1,27 +1,27 @@
 import time
 from datetime import datetime
+import warnings
 
 import numpy as np
 import pandas as pd
-from scipy.stats import stats
-from sklearn.cluster import DBSCAN
-from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
-# import category_encoders as ce
-from sklearn.preprocessing import LabelEncoder, OneHotEncoder, StandardScaler
-from sklearn.impute import SimpleImputer
-from sklearn.ensemble import RandomForestRegressor, IsolationForest
-
-import tensorflow as tf
-# import tensorflow_decision_forests as tfdf
-
-import ydf
 
 import seaborn as sns
 import matplotlib.pyplot as plt
+from pandas.core.dtypes.common import is_numeric_dtype
+
+from scipy.stats import stats
+from sklearn.compose import make_column_transformer
+# import category_encoders as ce
+from sklearn.preprocessing import LabelEncoder, OneHotEncoder, StandardScaler
+from sklearn.impute import SimpleImputer
+
+from sklearn.ensemble import IsolationForest
+from sklearn.cluster import DBSCAN
+
+import tensorflow as tf
+import ydf
 
 from ExperimentLogger import ExperimentLogger
-
-import warnings
 
 from HousePrices.ensemble_models import ensemble_model
 from HousePrices.models import yggdrassil_random_forest, tf_neural_network, sklearn_random_forest, gradient_booster, \
@@ -59,12 +59,9 @@ def encode_data(data):
                     'CentralAir', 'Electrical', 'GarageType', 'MiscFeature', 'SaleType',
                     'SaleCondition'
                     ]
-    # print(data['MSZoning'].head())
 
     encoder = OneHotEncoder(sparse_output=False)
-
     one_hot_enc = encoder.fit_transform(data[one_hot_cols])
-
     one_hot_df = pd.DataFrame(one_hot_enc, columns=encoder.get_feature_names_out(one_hot_cols))
 
     df_encoded = pd.concat([data, one_hot_df], axis=1)
@@ -80,10 +77,93 @@ def encode_data(data):
     return df_encoded
 
 
+def handle_missing(features, visualize=False):
+    """
+    Handles missing values with different methods for each feature type.
+
+    https://www.kaggle.com/code/lavanyashukla01/how-i-made-top-0-3-on-a-kaggle-competition#Feature-Engineering
+    """
+
+    if visualize:
+        missing_val_count_by_column = (features.isnull().sum())
+        print(missing_val_count_by_column[missing_val_count_by_column > 0])
+
+    # Impute missing values
+    # print("Imputed data: -------------------")
+
+    # my_imputer = SimpleImputer()
+    # # data = my_imputer.fit_transform(data)
+    # # test = my_imputer.fit_transform(test)
+    # all_features = my_imputer.fit_transform(all_features)
+
+    # data = data.drop((missing_data[missing_data['Total'] > 1]).index, 1)
+    # df_train = df_train.drop(df_train.loc[df_train['Electrical'].isnull()].index)
+    # df_train.isnull().sum().max()
+
+    # total = all_features.isnull().sum().sort_values(ascending=False)
+    # percent = (all_features.isnull().sum() / all_features.isnull().count()).sort_values(ascending=False)
+    # missing_data = pd.concat([total, percent], axis=1, keys=['Total', 'Percent'])
+    # print(missing_data.head(20))
+    # print()
+
+    features['Functional'] = features['Functional'].fillna('Typ')
+    # Replace the missing values with mode
+    features['Electrical'] = features['Electrical'].fillna("SBrkr")
+    features['KitchenQual'] = features['KitchenQual'].fillna("TA")
+    features['Exterior1st'] = features['Exterior1st'].fillna(features['Exterior1st'].mode()[0])
+    features['Exterior2nd'] = features['Exterior2nd'].fillna(features['Exterior2nd'].mode()[0])
+    features['SaleType'] = features['SaleType'].fillna(features['SaleType'].mode()[0])
+    # features['MSZoning'] = features.groupby('MSSubClass')['MSZoning'].transform(lambda x: x.fillna(x.mode()[0]))
+    # features['MSZoning'] = features['MSZoning'].fillna(features['MSZoning'].mode()[0])
+
+    features["PoolQC"] = features["PoolQC"].fillna("None")
+    for col in ('GarageYrBlt', 'GarageArea', 'GarageCars'):
+        features[col] = features[col].fillna(0)
+    for col in ['GarageType', 'GarageFinish', 'GarageQual', 'GarageCond']:
+        features[col] = features[col].fillna('None')
+    for col in ('BsmtQual', 'BsmtCond', 'BsmtExposure', 'BsmtFinType1', 'BsmtFinType2'):
+        features[col] = features[col].fillna('None')
+
+    # Group the by neighborhoods, and fill in missing value by the median LotFrontage of the neighborhood
+    features['LotFrontage'] = features.groupby('Neighborhood')['LotFrontage'].transform(
+        lambda x: x.fillna(x.median())
+    )
+
+    # objects = []
+    # for i in features.columns:
+    #     if features[i].dtype == object:
+    #         objects.append(i)
+    #
+    # features.update(features[objects].fillna('None'))
+
+    numeric_dtypes = ['int16', 'int32', 'int64', 'float16', 'float32', 'float64']
+    numeric = []
+    for i in features.columns:
+        if features[i].dtype in numeric_dtypes:
+            numeric.append(i)
+    features.update(features[numeric].fillna(0))
+
+    return features
+
+
+def scale_data(features):
+    scaler = StandardScaler()
+
+    numeric_dtypes = ['int32', 'int64', 'float32', 'float64']
+    numeric = []
+    for i in features.columns:
+        if is_numeric_dtype(features[i]):
+            print("Scaling", i)
+            numeric.append(i)
+
+    features[numeric] = scaler.fit_transform(features[numeric])
+
+    return features
+
+
 def preprocess_data(train, test, visualize=False):
     """
     Preprocesses the data by handling missing values and encoding categorical data.
-
     """
     # Outliers
     train.drop(train[(train['OverallQual'] < 5) & (train['SalePrice'] > 200000)].index, inplace=True)
@@ -101,76 +181,11 @@ def preprocess_data(train, test, visualize=False):
     all_features['YrSold'] = all_features['YrSold'].astype(float)
     all_features['MoSold'] = all_features['MoSold'].astype(float)
 
-    def handle_missing(features):
-        """
-        Handles missing values with different methods for each feature type.
-
-        https://www.kaggle.com/code/lavanyashukla01/how-i-made-top-0-3-on-a-kaggle-competition#Feature-Engineering
-        """
-
-        if visualize:
-            missing_val_count_by_column = (features.isnull().sum())
-            print(missing_val_count_by_column[missing_val_count_by_column > 0])
-
-        # Impute missing values
-        # print("Imputed data: -------------------")
-
-        # my_imputer = SimpleImputer()
-        # # data = my_imputer.fit_transform(data)
-        # # test = my_imputer.fit_transform(test)
-        # all_features = my_imputer.fit_transform(all_features)
-
-        # data = data.drop((missing_data[missing_data['Total'] > 1]).index, 1)
-        # df_train = df_train.drop(df_train.loc[df_train['Electrical'].isnull()].index)
-        # df_train.isnull().sum().max()
-
-        # total = all_features.isnull().sum().sort_values(ascending=False)
-        # percent = (all_features.isnull().sum() / all_features.isnull().count()).sort_values(ascending=False)
-        # missing_data = pd.concat([total, percent], axis=1, keys=['Total', 'Percent'])
-        # print(missing_data.head(20))
-        # print()
-
-        features['Functional'] = features['Functional'].fillna('Typ')
-        # Replace the missing values with mode
-        features['Electrical'] = features['Electrical'].fillna("SBrkr")
-        features['KitchenQual'] = features['KitchenQual'].fillna("TA")
-        features['Exterior1st'] = features['Exterior1st'].fillna(features['Exterior1st'].mode()[0])
-        features['Exterior2nd'] = features['Exterior2nd'].fillna(features['Exterior2nd'].mode()[0])
-        features['SaleType'] = features['SaleType'].fillna(features['SaleType'].mode()[0])
-        # features['MSZoning'] = features.groupby('MSSubClass')['MSZoning'].transform(lambda x: x.fillna(x.mode()[0]))
-        # features['MSZoning'] = features['MSZoning'].fillna(features['MSZoning'].mode()[0])
-
-        features["PoolQC"] = features["PoolQC"].fillna("None")
-        for col in ('GarageYrBlt', 'GarageArea', 'GarageCars'):
-            features[col] = features[col].fillna(0)
-        for col in ['GarageType', 'GarageFinish', 'GarageQual', 'GarageCond']:
-            features[col] = features[col].fillna('None')
-        for col in ('BsmtQual', 'BsmtCond', 'BsmtExposure', 'BsmtFinType1', 'BsmtFinType2'):
-            features[col] = features[col].fillna('None')
-
-        # Group the by neighborhoods, and fill in missing value by the median LotFrontage of the neighborhood
-        features['LotFrontage'] = features.groupby('Neighborhood')['LotFrontage'].transform(
-            lambda x: x.fillna(x.median())
-        )
-
-        objects = []
-        for i in features.columns:
-            if features[i].dtype == object:
-                objects.append(i)
-
-        features.update(features[objects].fillna('None'))
-
-        numeric_dtypes = ['int16', 'int32', 'int64', 'float16', 'float32', 'float64']
-        numeric = []
-        for i in features.columns:
-            if features[i].dtype in numeric_dtypes:
-                numeric.append(i)
-        features.update(features[numeric].fillna(0))
-
-        return features
-
     print("Handling missing values...")
-    all_features = handle_missing(all_features)
+    all_features = handle_missing(all_features, visualize=visualize)
+
+    print("Scaling data...")
+    # all_features = scale_data(all_features)
 
     print("Encoding data...")
     all_features = encode_data(all_features)
@@ -348,12 +363,19 @@ def explore_data(data, plot=False, test=False):
 
         # Missing data
         sns.heatmap(data.isnull(), cmap='viridis')
+        plt.title("Missing data")
         plt.show()
 
-        # Target distribution
+        # Distribution
         sns.displot(data['SalePrice'], color='g', bins=100);
         plt.show()
 
+        # Feature ranges
+        df_num.drop('SalePrice', axis=1).std(axis=0).plot.barh(figsize=(9, 7))
+        plt.title("Feature ranges")
+        plt.xlabel("Std. dev. of feature values")
+        plt.subplots_adjust(left=0.3)
+        plt.show()
 
     print("Data Shape, Sample, info: -------------------")
     print(data.shape)
@@ -454,7 +476,7 @@ class HousePricesRegressionEnv:
         # data = data.drop(data[data['Id'] == 1299].index)
         # data = data.drop(data[data['Id'] == 524].index)
 
-        train_ds_pd, valid_ds_pd = split_dataset(data)
+        train_ds_pd, valid_ds_pd = split_dataset(data, test_ratio=0.15)
         print("{} examples in training, {} examples in validation.".format(
             len(train_ds_pd), len(valid_ds_pd))
         )
