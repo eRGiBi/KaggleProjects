@@ -67,27 +67,25 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, from_scratch=T
                              verbose=-1,
                              random_state=SEED)
 
-    xgb_params = {
-        'verbosity': 0,
-        'device': 'cpu',
-        'seed': SEED,
-        'objective': 'reg:squarederror',
-        'eval_metric': 'rmse',
-        'learning_rate': 0.63,
-        'max_depth': 28,
-        'grow_policy': 'depthwise',
-        'subsample': 1,
-        'max_leaves': 17,
-        'lambda': 0.015,
-        'alpha': 0.3
-    }
-
-    xgboost = XGBRegressor(
-        **xgb_params,
-        n_estimators=10000,
-        early_stopping_rounds=50,
-        eval_set=[(valid_x, valid_targets)],
-    )
+    xgb_params = {"tree_method": "hist",
+                  "objective": "reg:squarederror",
+                  "eval_metric": "rmse",
+                  "importance_type": "weight",
+                  "scale_pos_weight": 1,
+                  'device': "cpu",
+                  "random_state": SEED,
+                  "verbosity": 0,
+                  'colsample_bytree': 0.5,
+                  'gamma': 0.4,
+                  'learning_rate': 0.024,  # poss lower
+                  'max_depth': 3,
+                  'max_leaves': 25,  # 5
+                  'n_estimators': 2500,
+                  'reg_alpha': 0.00657,
+                  'reg_lambda': 0.7,
+                  'subsample': 0.5,
+                  }
+    xgboost = xgb.XGBRegressor(**xgb_params)
 
     # ridge_alphas = np.array([
     #     0.1, 0.5, 1, 2, 5, 10, 15, 18, 20, 22,
@@ -111,14 +109,12 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, from_scratch=T
     #     verbose=False)
 
     ridge_alphas = np.array([
-        1e-10, 1e-8, 5e-6, 5e-5,
-        1e-4, 3e-4, 5e-4, 7e-4, 9e-4,
-        1e-3, 3e-3, 5e-3, 7e-3, 9e-3,
+
         1e-2, 3e-2, 5e-2, 7e-2, 9e-2,
-        0.1, 0.3, 0.5, 0.7, 0.9,
-        1, 2, 3, 5, 7, 10, 15, 18, 19,
-        20, 22, 25, 30, 50, 60, 67, 75, 80, 90, 100,
-        500, 1000, 2000, 3000, 5000, 10000, 20000, 30000, 50000, 100000,
+        0.1, 0.3, 0.5, 0.7,
+        1, 3, 5, 7, 10, 15,
+        20, 22, 25, 30, 50, 60, 67, 75, 90, 100,
+        500, 1000, 2000,
     ], dtype=np.float64)
 
     ridge_regressor = RidgeCV(alphas=ridge_alphas,
@@ -161,15 +157,29 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, from_scratch=T
                                         random_state=SEED,
                                         verbose=0)
 
-    skl_rf = RandomForestRegressor(n_estimators=5500,
-                                   max_depth=12,
+    # skl_rf = RandomForestRegressor(n_estimators=5500,
+    #                                max_depth=12,
+    #                                criterion='squared_error',
+    #                                min_samples_split=2,
+    #                                min_samples_leaf=1,
+    #                                max_features=None,
+    #                                bootstrap=True,
+    #                                max_samples=1.0,
+    #                                oob_score=False,
+    #                                n_jobs=-1,
+    #                                random_state=SEED,
+    #                                verbose=0)
+    skl_rf = RandomForestRegressor(n_estimators=2100,
+                                   max_depth=16,
                                    criterion='squared_error',
                                    min_samples_split=2,
-                                   min_samples_leaf=1,
+                                   min_samples_leaf=2,
+                                   max_leaf_nodes=None,
+                                   min_impurity_decrease=0,
                                    max_features=None,
                                    bootstrap=True,
                                    max_samples=1.0,
-                                   oob_score=False,
+                                   oob_score=True,
                                    n_jobs=-1,
                                    random_state=SEED,
                                    verbose=0)
@@ -217,11 +227,11 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, from_scratch=T
 
         print('XGBoost')
         xgb_model = xgboost.fit(train_x, train_targets,
-                                eval_set=[(valid_x, valid_targets)]),
+                                eval_set=[(valid_x, valid_targets)])
         # calculate_metrics(xgb_model, train_ds_pd, valid_ds_pd)
 
         print('Ridge')
-        ridge_model = ridge.fit(x=np.concatenate((train_x, valid_x), axis=0),
+        ridge_model = ridge.fit(X=np.concatenate((train_x, valid_x), axis=0),
                                 y=np.concatenate((train_targets, valid_targets), axis=0))
         # calculate_metrics(ridge_model, train_ds_pd, valid_ds_pd)
         # ridgecv_step = ridge.named_steps['ridgecv']
