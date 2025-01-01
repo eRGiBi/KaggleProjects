@@ -27,11 +27,11 @@ from HousePrices.ensemble_models import ensemble_model
 from HousePrices.models import yggdrassil_random_forest, tf_neural_network, sklearn_random_forest, gradient_booster, \
     ridge_regression
 
-
 # from HousePrices.models import tf_decision_forests
 
 
 def encode_data(data):
+    """Label and one-hot encode predefined categorical data."""
     # Label encoding
     # LotShape, LandContour, Utilities, LotConfig, LandSlope, ExterQual, ExterCond, BsmtQual,
     # BsmtCond, BsmtExposure, BsmtFinType1, BsmtFinType2, HeatingQC, KitchenQual, Functional,
@@ -149,7 +149,6 @@ def handle_missing(features, visualize=False):
 def scale_data(features):
     scaler = StandardScaler()
 
-    numeric_dtypes = ['int32', 'int64', 'float32', 'float64']
     numeric = []
     for i in features.columns:
         if is_numeric_dtype(features[i]):
@@ -184,7 +183,7 @@ def preprocess_data(train, test, visualize=False):
     print("Handling missing values...")
     all_features = handle_missing(all_features, visualize=visualize)
 
-    print("Scaling data...")
+    # print("Scaling data...")
     # all_features = scale_data(all_features)
 
     print("Encoding data...")
@@ -198,26 +197,7 @@ def preprocess_data(train, test, visualize=False):
 
     print("New train and test set shape:", train.shape, test.shape)
 
-    # for col in data.columns:
-    #     if data[col].dtype != 'int64' and data[col].dtype != 'int32' and data[col].dtype != 'float64':
-    # print(col, data[col].dtype)
     # print(data[col].unique())
-
-    # for col in df_encoded.columns:
-    #     if df_encoded[col].dtype == 'int64' or df_encoded[col].dtype == 'int32':
-    #         df_encoded[col] = df_encoded[col].astype('float64')
-    # for col in df_encoded.columns:
-    #     for i in range(len(df_encoded[col])):
-    #         # print(f"Checking {col} at index {i}")
-    #         # print(df_encoded[col].iloc[i])
-    #         if df_encoded[col].iloc[i] == 'NA':
-    #             df_encoded[col].iloc[i] = 0
-    #             print(f"Replaced NA in {col} with 0")
-    #         try:
-    #             tensor = tf.convert_to_tensor(i)
-    #             print("Conversion successful!")
-    #         except Exception as e:
-    #             print(f"Error during conversion: {e}")
 
     return train, test
 
@@ -489,30 +469,26 @@ class HousePricesRegressionEnv:
 
     def run_regression(self, algorithm, SEED, submit=False, tune=False):
 
-        # Refactor
-        train_ds_pd = self.train_set
-        valid_ds_pd = self.valid_set
-        test = self.test_set
-        ids = self.ids
-        exp_logger = self.exp_logger
-
         if algorithm == 'tfdf':
-            tf_decision_forests(train_ds_pd, valid_ds_pd, test, ids, self.exp_name, SEED)
+            tf_decision_forests(self.train_set, self.valid_set, self.test_set,
+                                self.ids, self.exp_name, SEED)
         elif algorithm == 'sklearn_rf':
-            sklearn_random_forest(train_ds_pd, valid_ds_pd, test, ids, self.exp_name, SEED, tune=tune)
+            sklearn_random_forest(self.train_set, self.valid_set, self.test_set,
+                                  self.ids, self.exp_name, SEED, tune=tune)
         elif algorithm == 'yggdf':
-            yggdrassil_random_forest(train_ds_pd, valid_ds_pd, test, ids, self.exp_name, SEED, submit, tune=tune)
+            yggdrassil_random_forest(self.train_set, self.valid_set, self.test_set,
+                                     self.ids, self.exp_name, SEED, submit, tune=tune)
         elif algorithm == 'grb':
-            gradient_booster(train_ds_pd, valid_ds_pd, test, ids, self.exp_name, SEED, submit, tune=tune)
+            gradient_booster(self.train_set, self.valid_set, self.test_set,
+                             self.ids, self.exp_name, SEED, submit, tune=tune)
         elif algorithm == 'ensemble':
-            ensemble_model(train_ds_pd, valid_ds_pd, test, ids,
-                           self.exp_name,
-                           SEED=SEED,
-                           submit=submit,
-                           from_scratch=True)
+            ensemble_model(self.train_set, self.valid_set, self.test_set,
+                           self.ids, self.exp_name, SEED=SEED, submit=submit, from_scratch=True)
         elif algorithm == 'NN':
-            tf_neural_network(train_ds_pd, valid_ds_pd, test, ids, self.exp_name, SEED)
+            tf_neural_network(self.train_set, self.valid_set, self.test_set,
+                              self.ids, self.exp_name, SEED)
         elif algorithm == 'ridge':
-            ridge_regression(train_ds_pd, valid_ds_pd, test, ids, self.exp_name, SEED)
+            ridge_regression(self.train_set, self.valid_set, self.test_set,
+                             self.ids, self.exp_name, SEED)
         else:
             print("Invalid algorithm.")
