@@ -2,8 +2,10 @@ import pickle
 
 import numpy as np
 import pandas as pd
-import ydf
+
 from matplotlib import pyplot as plt
+import seaborn as sns
+
 from scipy.optimize import minimize
 from sklearn.compose import TransformedTargetRegressor
 from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor, HistGradientBoostingRegressor
@@ -17,15 +19,13 @@ from sklearn.linear_model import Ridge, RidgeCV
 from sklearn.linear_model import ElasticNet, ElasticNetCV
 from sklearn.svm import SVR
 from mlxtend.regressor import StackingCVRegressor
-
+import ydf
 import lightgbm as lgb
 import xgboost as xgb
 from lightgbm import LGBMRegressor
 from xgboost import XGBRegressor
 
 import tensorflow as tf
-
-import seaborn as sns
 
 from metrics import rmse, cv_rmse, np_rmsle
 
@@ -49,8 +49,9 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, from_scratch=T
     # Model declarations
 
     lightgbm = LGBMRegressor(objective='regression',
-                             num_leaves=6,
-                             learning_rate=0.1,
+                             num_leaves=25,
+                             max_depth=5,
+                             learning_rate=0.05,
                              n_estimators=4000,
                              max_bin=250,
                              bagging_fraction=0.5,
@@ -58,11 +59,14 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, from_scratch=T
                              subsample_freq=1,
                              bagging_freq=4,
                              bagging_seed=SEED + 1,
-                             feature_fraction=0.8,
+                             feature_fraction=0.6,
                              feature_fraction_seed=SEED + 2,
-                             min_sum_hessian_in_leaf=11,
+                             colsample_bytree=0.5,
+                             # min_sum_hessian_in_leaf=11,
                              reg_alpha=0.3,
                              reg_lambda=0.015,
+
+                             device_type='cpu',
                              n_jobs=-1,
                              verbose=-1,
                              random_state=SEED)
@@ -134,13 +138,9 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, from_scratch=T
     )
 
     ridge = make_pipeline(
-        # QuantileTransformer(output_distribution='normal',
-        #                     ignore_implicit_zeros=True,
-        #                     random_state=SEED),
         RobustScaler(with_centering=False,
                      with_scaling=True,
                      quantile_range=(5.0, 95.0)),
-        # MinMaxScaler(feature_range=(0, 1)),
         transformed_ridge,
         verbose=True)
 
@@ -204,7 +204,7 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, from_scratch=T
         print('XGBoost')
         # score = cv_rmse(xgboost, params={"eval_set": (valid_x, valid_targets)})
         xgboost.fit(train_x, train_targets, eval_set=[(valid_x, valid_targets)])
-        score = rmse(train_targets, xgboost.predict(train_x))
+        score = rmse(valid_targets, xgboost.predict(valid_x))
         scores['XGBoost'] = (score.mean(), score.std())
 
         for regressor in [lightgbm, ridge, skl_rf, skl_gbr, stack_gen]:
