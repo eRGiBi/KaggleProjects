@@ -23,6 +23,10 @@ from lightgbm import LGBMRegressor
 
 import xgboost as xgb
 
+import tensorflow as tf
+# import tensorflow_decision_forests as tfdf
+import ydf
+
 from sklearn.metrics._dist_metrics import parse_version
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import RobustScaler, StandardScaler, MinMaxScaler, QuantileTransformer
@@ -33,15 +37,12 @@ from sklearn.model_selection import GridSearchCV
 # from hyperopt import fmin, tpe, hp
 import optuna
 
-import tensorflow as tf
-# import tensorflow_decision_forests as tfdf
-import ydf
 
 import matplotlib.pyplot as plt
 import seaborn as sns
 
 from ExperimentLogger import ExperimentLogger
-from metrics import calculate_metrics, pred_error_display
+from metrics import calculate_metrics, pred_error_display, rmse, np_rmsle
 
 # TODO: Refactoring
 exp_logger = ExperimentLogger('HousePrices/submissions/experiment_aggregate.csv')
@@ -662,8 +663,8 @@ def gradient_booster(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit
 
         accuracy_history = []
 
-        dtrain = xgb.DMatrix(train_x.to_numpy(), label=train_y.to_numpy(), nthread=11)
-        dvalid = xgb.DMatrix(valid_x.to_numpy(), label=valid_y.to_numpy(), nthread=11)
+        dtrain = xgb.DMatrix(train_x.to_numpy(), label=train_y.to_numpy(), nthread=-1, silent=True)
+        dvalid = xgb.DMatrix(valid_x.to_numpy(), label=valid_y.to_numpy(), nthread=-1, silent=True)
 
         dtrain.set_float_info("label_lower_bound", train_y.to_numpy())
         dtrain.set_float_info("label_upper_bound", train_y.to_numpy())
@@ -685,7 +686,7 @@ def gradient_booster(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit
         if tune:
 
             use_optuna = False
-            use_skl_api = False
+            use_skl_api = True
 
             if use_optuna:
 
@@ -697,7 +698,7 @@ def gradient_booster(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit
                                    'booster': 'gblinear',
                                    'objective': 'reg:squarederror',
                                    'eval_metric': 'rmse',
-                                   'tree_method': 'hist',
+                                   'tree_method': 'exact',
                                    'scale_pos_weight': 1,
                                    'validate_parameters': True,
                                    }
@@ -707,8 +708,10 @@ def gradient_booster(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit
                                        'objective': 'reg:squarederror',
                                        'eval_metric': root_mean_squared_error,
                                        'importance_type': 'weight',
+                                       'max_bin ': 512,
+                                       'tree_method': 'exact',
                                        'scale_pos_weight': 1,
-                                       'n_jobs': 11,
+                                       'n_jobs': 1,
                                        }
 
                 def objective(trial):
@@ -716,14 +719,12 @@ def gradient_booster(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit
                     pruning_callback = optuna.integration.XGBoostPruningCallback(trial, 'reg:squaredlogerror')
 
                     if use_skl_api:
-                        params = {'n_estimators': trial.suggest_int('n_estimators', 1000, 30000),
+                        params = {'n_estimators': trial.suggest_int('n_estimators', 1000, 4000),
                                   'learning_rate': trial.suggest_float('learning_rate', 0.001, 0.7, log=False),
                                   'max_depth': trial.suggest_int('max_depth', 2, 16),
-                                  'tree_method': trial.suggest_categorical('tree_method', ['hist', 'exact']),
                                   'grow_policy': trial.suggest_categorical('grow_policy', ['depthwise', 'lossguide']),
-                                  'subsample': trial.suggest_float('subsample', 0.5, 1.0),
-                                  'colsample_bytree': trial.suggest_float('colsample_bytree', 0.5, 1.0),
-                                  'max_leaves': trial.suggest_int('max_leaves', 2, 64),
+                                  'subsample': trial.suggest_float('subsample', 0.5, .6),
+                                  'max_leaves': trial.suggest_int('max_leaves', 2, 32),
                                   'min_child_weight': 0,
                                   # trial.suggest_float('min_child_weight', 1e-2, 3.0, log=True),
                                   'gamma': trial.suggest_float('gamma', 0.0, 1.0),
@@ -740,13 +741,12 @@ def gradient_booster(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit
                         return rmse(valid_y, regressor.predict(valid_x))
 
                     else:
-                        params = {'num_boost_round': trial.suggest_int('num_boost_round', 100, 10000),
+                        params = {'num_boost_round': trial.suggest_int('num_boost_round', 1000, 4000),
                                   'eta': trial.suggest_float('learning_rate', 0.001, 0.7, log=False),
                                   'max_depth': trial.suggest_int('max_depth', 2, 16),
-                                  'tree_method': trial.suggest_categorical('tree_method', ['hist', 'exact']),
                                   'grow_policy': trial.suggest_categorical('grow_policy', ['depthwise', 'lossguide']),
-                                  'subsample': trial.suggest_float('subsample', 0.5, 1.0),
-                                  'max_leaves': trial.suggest_int('max_leaves', 2, 64),
+                                  'subsample': trial.suggest_float('subsample', 0.5, .6),
+                                  'max_leaves': trial.suggest_int('max_leaves', 2, 32),
                                   'min_child_weight': 0,
                                   # trial.suggest_float('min_child_weight', 1e-2, 3.0, log=True),
                                   'gamma': trial.suggest_float('gamma', 0.0, 1.0),
@@ -801,7 +801,7 @@ def gradient_booster(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit
                                     evals_result=res,
                                     early_stopping_rounds=100,
                                     verbose_eval=True,
-                                    custom_metric=[rmsle],
+                                    # custom_metric=np_rmsle,
                                     callbacks=[eval_callback])
 
                 bst.save_model('HousePrices/saved_models/best_xgb_model.json')
@@ -841,27 +841,34 @@ def gradient_booster(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit
             # XGB search
             else:
                 params = {
-                    'n_estimators': randint(2000, 3000),
+                    'n_estimators': randint(2000, 8000),
                     'max_depth': randint(2, 5),
                     'max_leaves': randint(2, 30),
-                    'learning_rate': uniform(loc=0.01, scale=0.1),
+                    'learning_rate': uniform(loc=0.001, scale=0.3),
                     'subsample': uniform(loc=0.5, scale=0.1),
-                    'colsample_bytree': uniform(loc=0.5, scale=0.1),
+                    # 'colsample_bytree': uniform(loc=0.5, scale=0.1),
+                    # 'colsample_bynode ': uniform(loc=0.5, scale=0.5),
+                    'grow_policy': ['lossguide', 'depthwise'],
+                    # 'min_child_weight ': uniform(loc=0.0, scale=1.0), ??????????????????????
                     'gamma': uniform(loc=0.4, scale=.2),
                     'reg_lambda': uniform(loc=1e-2, scale=1.0),
-                    'reg_alpha': uniform(loc=1e-6, scale=0.01)
                 }
-
-                # Xy = xgb.QuantileDMatrix(train_x, train_y)
-
                 regressor = xgb.XGBRegressor(tree_method="hist",
+                                             booster="gbtree",
                                              objective="reg:squarederror",
                                              eval_metric="rmse",
                                              importance_type="weight",
+                                             max_bin=256,
+
+                                             colsample_bytree=0.5,
                                              scale_pos_weight=1,
-                                             device="cpu",
+                                             reg_alpha=0.007,
+
+                                             device="cuda",
                                              random_state=SEED,
-                                             verbosity=3)
+
+                                             n_jobs=1,
+                                             verbosity=2)
 
                 search = RandomizedSearchCV(regressor, params,
                                             n_iter=300,
@@ -869,20 +876,26 @@ def gradient_booster(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit
                                             scoring='neg_root_mean_squared_error',
                                             n_jobs=-1,
                                             return_train_score=True,
-                                            verbose=3)
+                                            verbose=5)
 
                 # xy = xgb.QuantileDMatrix(train_x_gpu, y_train_y_gpu)
 
-                bst = search.fit(X=np.concatenate((train_x, valid_x), axis=0),
-                                 y=np.concatenate((train_y, valid_y), axis=0))
+                train_x = cp.asarray(np.concatenate((train_x.to_numpy(), valid_x.to_numpy()), axis=0))
+                train_y = cp.asarray(np.concatenate((train_y.to_numpy(), valid_y.to_numpy()), axis=0))
+
+                bst = search.fit(X=train_x.get(),
+                                 y=train_y.get())
 
                 # {'learning_rate': 0.01, 'max_depth': 5, 'n_estimators': 2000, 'subsample': 0.5}
                 print("Best set of hyperparameters: ", search.best_params_)
                 print("Best score: ", search.best_score_)
 
                 cv_results = search.cv_results_
+                sorted_res = np.argsort(cv_results['mean_test_score'])
+
                 for mean_score, params in zip(cv_results["mean_test_score"], cv_results["params"]):
                     print(-mean_score, params)
+                print(sorted_res)
 
         # Train with best hyperparameters
         else:
@@ -891,6 +904,10 @@ def gradient_booster(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit
              'max_depth': 3, 'max_leaves': 25, # 5
              'n_estimators': 2500, 'reg_alpha': 0.00657,
              'reg_lambda': 0.7, 'subsample': 0.5}
+
+            {'gamma': 0.44518296766885146, 'grow_policy': 'lossguide', 'learning_rate': 0.0036219025650929817,
+             'max_depth': 4, 'max_leaves': 12, 'n_estimators': 7562, 'reg_alpha': 0.007,
+             'reg_lambda': 0.12335978311448657, 'subsample': 0.6}
 
             params = {'verbosity': 3, 'device': 'cpu', 'seed': 476, 'objective': 'reg:linear',
                       'eval_metric': 'rmse', 'tree_method': 'exact', 'scale_pos_weight': 1,
