@@ -37,7 +37,6 @@ from sklearn.model_selection import GridSearchCV
 # from hyperopt import fmin, tpe, hp
 import optuna
 
-
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -899,37 +898,16 @@ def gradient_booster(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit
 
         # Train with best hyperparameters
         else:
-
-            {'colsample_bytree': 0.5, 'gamma': 0.4, 'learning_rate': 0.024, # poss lower
-             'max_depth': 3, 'max_leaves': 25, # 5
+            {'colsample_bytree': 0.5, 'gamma': 0.4, 'learning_rate': 0.024,  # poss lower
+             'max_depth': 3, 'max_leaves': 25,  # 5
              'n_estimators': 2500, 'reg_alpha': 0.00657,
              'reg_lambda': 0.7, 'subsample': 0.5}
 
-            {'gamma': 0.44518296766885146, 'grow_policy': 'lossguide', 'learning_rate': 0.0036219025650929817,
-             'max_depth': 4, 'max_leaves': 12, 'n_estimators': 7562, 'reg_alpha': 0.007,
-             'reg_lambda': 0.12335978311448657, 'subsample': 0.6}
-
-            params = {'verbosity': 3, 'device': 'cpu', 'seed': 476, 'objective': 'reg:linear',
-                      'eval_metric': 'rmse', 'tree_method': 'exact', 'scale_pos_weight': 1,
-                      'n_estimators': 5068, 'learning_rate': 0.01,
-                      'max_depth': 12, 'grow_policy': 'lossguide',
-                      'subsample': 1,
-                      'max_leaves': 31, 'gamma': 0.24, 'lambda': 0.0135,
-                      'alpha': 0.0077}
+            params = {'gamma': 0.44518296766885146, 'grow_policy': 'lossguide', 'learning_rate': 0.0036219025650929817,
+                      'max_depth': 4, 'max_leaves': 12, 'n_estimators': 7562, 'reg_alpha': 0.007,
+                      'reg_lambda': 0.12335978311448657, 'subsample': 0.6}
 
             regressor = xgb.XGBRegressor(**params,
-                                         # learning_rate=0.01,
-                                         # n_estimators=6000,
-                                         # max_depth=4,
-                                         # min_child_weight=0,
-                                         # gamma=0.6,
-                                         # subsample=0.7,
-                                         # colsample_bytree=0.7,
-                                         # objective='reg:linear',
-                                         # nthread=-1,
-                                         # scale_pos_weight=1,
-                                         # seed=SEED,
-                                         # reg_alpha=0.00006,
                                          )
 
             bst = regressor.fit(train_x, train_y,
