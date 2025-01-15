@@ -27,7 +27,7 @@
 - TensorFlow, Yggdrasil, Scikit-learn Random Forests
 - Tensorflow Neural Network
 
-- Ensemble learning with
+#### 4. Ensemble learning with
    - RidgeCV with custom pipeline
    - Sklearn, xgboost, LightGBM Gradient Boosting with different hyperparameter optimization
    - Random Forest
@@ -36,7 +36,7 @@
 
 ---
 
-#### 4. Model evaluation
+#### 5. Model evaluation
 
 - Mean Squared, Root Mean Squared, Root Mean Squared Logarithmic Error
 - R2
