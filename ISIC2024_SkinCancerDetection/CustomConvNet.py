@@ -1,10 +1,11 @@
+import numpy as np
 import tensorflow as tf
 
 
 class CustomConvNet(tf.keras.Model):
     """Custom model."""
 
-    def __init__(self, input_shape, activation_func, initializer, dense_initializer, seed):
+    def __init__(self, input_shape, activation_func, initializer, dense_initializer, pos_neg_ratio=0.5, seed=476):
 
         super(CustomConvNet, self).__init__()
 
@@ -158,7 +159,7 @@ class CustomConvNet(tf.keras.Model):
 
         self.hidden_layers = []
         for _ in range(2):
-            self.hidden_layers.append(tf.keras.layers.Dense(2048,
+            self.hidden_layers.append(tf.keras.layers.Dense(1024,
                                                             activation=activation_func,
                                                             kernel_initializer=dense_initializer,
                                                             kernel_regularizer=tf.keras.regularizers.L1L2(0.001, 0.001),
@@ -171,7 +172,7 @@ class CustomConvNet(tf.keras.Model):
 
         self.fc = []
         for _ in range(1):
-            self.fc.append(tf.keras.layers.Dense(1024,
+            self.fc.append(tf.keras.layers.Dense(512,
                                                  activation=activation_func,
                                                  kernel_initializer=dense_initializer,
                                                  kernel_regularizer=tf.keras.regularizers.L1L2(0.001, 0.001),
@@ -182,7 +183,8 @@ class CustomConvNet(tf.keras.Model):
 
         self.output_layer = tf.keras.layers.Dense(1, activation='sigmoid',
                                                   # kernel_initializer=dense_initializer,
-                                                  #   bias_initializer=tf.keras.initializers.Constant(np.log([pos/neg]))
+                                                  bias_initializer=tf.keras.initializers.Constant(
+                                                      np.log([pos_neg_ratio]))
                                                   )
 
         self.bach_norm_layers = [tf.keras.layers.BatchNormalization() for _ in range(17)]
