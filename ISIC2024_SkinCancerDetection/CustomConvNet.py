@@ -134,6 +134,13 @@ class CustomConvNet(tf.keras.Model):
                                              # kernel_regularizer=tf.keras.regularizers.L1L2(0.001, 0.001),
                                              # activity_regularizer=tf.keras.regularizers.L1L2(0.001, 0.001)
                                              )
+        self.conv101 = tf.keras.layers.Conv2D(filters=512, kernel_size=(3, 3),
+                                             activation=activation_func,
+                                             kernel_initializer=initializer,
+                                             padding="same",
+                                             # kernel_regularizer=tf.keras.regularizers.L1L2(0.001, 0.001),
+                                             # activity_regularizer=tf.keras.regularizers.L1L2(0.001, 0.001)
+                                             )
         self.pool6 = (tf.keras.layers.AveragePooling2D(pool_size=(2, 2), strides=(2, 2)))
 
         self.conv11 = tf.keras.layers.Conv2D(filters=512, kernel_size=(3, 3),
@@ -243,10 +250,13 @@ class CustomConvNet(tf.keras.Model):
         x = self.bach_norm_layers[14](x)
         x = self.conv10(x)
         x = self.bach_norm_layers[15](x)
+        # x = self.conv101(x)
+        # x = self.bach_norm_layers[16](x)
         x = self.pool6(x)
 
         x = self.conv11(x)
-        x = self.bach_norm_layers[16](x)
+        x = self.bach_norm_layers[17](x)
+
         # x = self.conv12(x)
         # x = self.pool7(x)
 
