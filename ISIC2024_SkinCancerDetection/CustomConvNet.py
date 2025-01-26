@@ -26,7 +26,7 @@ class CustomConvNet(tf.keras.Model):
                                             padding="same",
                                             use_bias=False,
                                             # activation=activation_func,
-                                            data_format="channels_last",  # def
+                                            data_format="channels_last",
                                             kernel_initializer=initializer,
                                             )
         self.conv2 = tf.keras.layers.Conv2D(filters=32, kernel_size=(3, 3),
@@ -165,8 +165,8 @@ class CustomConvNet(tf.keras.Model):
         #     self.hidden_layers.append(tf.keras.layers.Dropout(0.2))
 
         self.hidden_layers = []
-        for _ in range(2):
-            self.hidden_layers.append(tf.keras.layers.Dense(1024,
+        for _ in range(1):
+            self.hidden_layers.append(tf.keras.layers.Dense(2048,
                                                             activation=activation_func,
                                                             kernel_initializer=dense_initializer,
                                                             kernel_regularizer=tf.keras.regularizers.L1L2(0.001, 0.001),
@@ -190,22 +190,22 @@ class CustomConvNet(tf.keras.Model):
 
         self.output_layer = tf.keras.layers.Dense(1, activation='sigmoid',
                                                   # kernel_initializer=dense_initializer,
-                                                  bias_initializer=tf.keras.initializers.Constant(
-                                                      np.log([pos_neg_ratio]))
+                                                  # bias_initializer=tf.keras.initializers.Constant(
+                                                  #     np.log([pos_neg_ratio]))
                                                   )
 
         self.bach_norm_layers = [tf.keras.layers.BatchNormalization() for _ in range(17)]
         # self.gauss_noise_layers = [tf.keras.layers.GaussianNoise(0.2, seed=seed) for _ in range(4)]
-        self.spatial_dropout_layers = [tf.keras.layers.SpatialDropout2D(0.1, seed=seed) for _ in range(1)]
+        # self.spatial_dropout_layers = [tf.keras.layers.SpatialDropout2D(0.1, seed=seed) for _ in range(1)]
 
     def call(self, x):
-        x = self.conv0(x)
-        x = self.spatial_dropout_layers[0](x)
-        x = self.batch_norm0(x)
-        x = self.activation0(x)
+        # x = self.conv0(x)
+        # x = self.spatial_dropout_layers[0](x)
+        # x = self.batch_norm0(x)
+        # x = self.activation0(x)
 
         x = self.conv1(x)
-        # x = self.spatial_dropout_layers[1](x)
+        # x = self.spatial_dropout_layers[0](x)
         x = self.bach_norm_layers[0](x)
         x = self.conv2(x)
         # x = self.spatial_dropout_layers[2](x)
@@ -255,7 +255,7 @@ class CustomConvNet(tf.keras.Model):
         x = self.pool6(x)
 
         x = self.conv11(x)
-        x = self.bach_norm_layers[17](x)
+        # x = self.bach_norm_layers[16](x)
 
         # x = self.conv12(x)
         # x = self.pool7(x)
