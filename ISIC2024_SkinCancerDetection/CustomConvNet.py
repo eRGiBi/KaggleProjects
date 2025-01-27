@@ -147,8 +147,8 @@ class CustomConvNet(tf.keras.Model):
                                              activation=activation_func,
                                              kernel_initializer=initializer,
                                              use_bias=False,
-                                             kernel_regularizer=tf.keras.regularizers.L1L2(0.001, 0.001),
-                                             activity_regularizer=tf.keras.regularizers.L1L2(0.001, 0.001)
+                                             # kernel_regularizer=tf.keras.regularizers.L1L2(0.001, 0.001),
+                                             # activity_regularizer=tf.keras.regularizers.L1L2(0.001, 0.001)
                                              )
 
         # self.conv12 = tf.keras.layers.Conv2D(filters=512, kernel_size=(3, 3),
@@ -169,9 +169,10 @@ class CustomConvNet(tf.keras.Model):
             self.hidden_layers.append(tf.keras.layers.Dense(2048,
                                                             activation=activation_func,
                                                             kernel_initializer=dense_initializer,
-                                                            kernel_regularizer=tf.keras.regularizers.L1L2(0.001, 0.001),
-                                                            activity_regularizer=tf.keras.regularizers.L1L2(0.001,
-                                                                                                            0.001),
+                                                            # kernel_regularizer=tf.keras.regularizers.L1L2(0.001,
+                                                            #                                               0.001),
+                                                            # activity_regularizer=tf.keras.regularizers.L1L2(0.001,
+                                                            #                                                 0.001),
                                                             )
                                       )
             self.hidden_layers.append(tf.keras.layers.Dropout(0.1, seed=seed))
@@ -182,8 +183,8 @@ class CustomConvNet(tf.keras.Model):
             self.fc.append(tf.keras.layers.Dense(512,
                                                  activation=activation_func,
                                                  kernel_initializer=dense_initializer,
-                                                 kernel_regularizer=tf.keras.regularizers.L1L2(0.001, 0.001),
-                                                 activity_regularizer=tf.keras.regularizers.L1L2(0.001, 0.001),
+                                                 # kernel_regularizer=tf.keras.regularizers.L1L2(0.001, 0.001),
+                                                 # activity_regularizer=tf.keras.regularizers.L1L2(0.001, 0.001),
                                                  )
                            )
             self.fc.append(tf.keras.layers.BatchNormalization())
