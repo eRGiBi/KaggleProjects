@@ -153,9 +153,7 @@ dmypy.json
 cython_debug/
 
 /.idea
-/NP Tutorials
 /HousePrices/data
-/IndiaAirQual/data
 /ISIC2024_SkinCancerDetection/data
 
 *.html
