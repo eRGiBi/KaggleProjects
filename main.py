@@ -3,7 +3,7 @@ from HousePrices.HousePrices import HousePricesRegressionEnv
 if __name__ == '__main__':
     # TODO: ArgParser
 
-    SEED = 476
+    SEED = 4766456
 
     # HousePricesRegressionEnv(SEED=SEED).run_regression(algorithm="NN", submit=False, SEED=SEED)
     # HousePricesRegressionEnv(SEED=SEED).run_regression(algorithm="yggdf", tune=False, submit=False, SEED=SEED)
