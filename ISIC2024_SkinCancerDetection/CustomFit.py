@@ -5,6 +5,7 @@ def fit():
     # Focal loss
     # 
 
+
     device = "cuda"
     model.to(device)
 
