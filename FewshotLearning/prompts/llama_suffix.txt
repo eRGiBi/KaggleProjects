@@ -1,0 +1,5 @@
+The following is the description of the product, from which you have to generate the description:
+
+Input: {input}<|eot_id|>
+
+<|start_header_id|>assistant<|end_header_id|>

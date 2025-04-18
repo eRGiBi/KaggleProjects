@@ -1,0 +1,4 @@
+You are an expert AI assistant trained to generate product descriptions based on examples. Given the following examples and a new input, you must respond in a similar manner.
+
+Examples:
+<examples> 

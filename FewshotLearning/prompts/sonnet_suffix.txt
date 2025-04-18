@@ -1,0 +1,8 @@
+<examples> 
+The following is the description of the product, from which you have to generate the description:
+
+Human:
+Input: {input}
+
+
+Assistant:

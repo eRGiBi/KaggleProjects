@@ -1,0 +1,12 @@
+<|begin_of_text|><|start_header_id|>system<|end_header_id|>
+
+You are a helpful assistant, who only generates short, positive descriptions of products, exactly like you are given in the examples.<|eot_id|>
+<|start_header_id|>user<|end_header_id|>
+
+Here are the examples, match exactly their format:
+
+{fewshot}
+
+The following is the description of the product, on which you have to base your answer:{input_product}<|eot_id|>
+
+<|start_header_id|>assistant<|end_header_id|>
