@@ -154,11 +154,20 @@ cython_debug/
 
 /.idea
 /HousePrices/data
+
 /ISIC2024_SkinCancerDetection/data
+/ISIC2024_SkinCancerDetection/logs/
+/ISIC2024_SkinCancerDetection/chkpts/
+/ISIC2024_SkinCancerDetection/experiments/
 
 *.html
 desktop.ini
 
-/ISIC2024_SkinCancerDetection/logs/
-/ISIC2024_SkinCancerDetection/chkpts/
-/ISIC2024_SkinCancerDetection/experiments/
+/StanfordRNA3DFolding
+
+FewshotLearning//*zip
+
+FewshotLearning/data
+FewshotLearning/experiments
+FewshotLearning/results
+FewshotLearning/lambda_files_experiments
