@@ -1,14 +1,16 @@
 # Few-shot learning based Prompt engineering for Product description generation
 
+![Data flow](resources/flow.png)
+
+
 ## Summary
 
 This projects applies few-shot prompt engineering while inferencing LLMs for dynamic product description generation. After some data transformation and cleaning, the prompts are constucted with Langchain for Llama and the MessagesAPI for Sonnet from Flipkart product specifications. 
 
-The project has a full integration with AWS, and utilizes Sagemaker, Bedrock and an external Lambda API that can be called with Postman or curl. The model performance is evaluated and visualized with BERTscore, computed with a roberta-large embedding model.
+The project has a full integration with AWS and utilizes Sagemaker, Bedrock and an external Lambda API that can be called with Postman or curl. The model performance is evaluated and visualized with BERTscore, computed with a roberta-large embedding model.
 
----
 
-### Dataset
+## Dataset
 
 The dataset is filtered to only contain samples that belong to "Jewellery >> Necklaces & Chains >> Necklaces" product_category_tree. It comes to 1500 different flipkart products.
 
@@ -18,9 +20,7 @@ The dataset is filtered to only contain samples that belong to "Jewellery >> Nec
 
 - Output: description
 
-
-
-### Approach: few-shot learning for prompt construction
+## Approach: few-shot learning for prompt construction
 
 - Prompt construction with Langchain and MessageAPI
 
@@ -30,15 +30,23 @@ The dataset is filtered to only contain samples that belong to "Jewellery >> Nec
 
 - Eval metrics: BERTScore (Precision, Recall, F1), computed with roberta-large
 
-![Data flow](resources/flow.png)
 
----
+## Results
+
+Sonnet 3.5 achieves 0.99 average BERT f1 score with only 3 few-shot examples, albeit with high output token costs and slow inference time.
+
+
+## Installation
 
 ### Local notebook requirements
 
-Install packages from the included requirements file:
+Install packages from the included requirements file (project was done using Anaconda):
 
-    pip3 install -r requirements.txt
+    conda install --yes --file requirements.txt
+
+When using venv:
+
+    pip install -r requirements.txt
 
 
 ### Prerequisites for Sagemaker
@@ -50,12 +58,6 @@ For requirements, use the included environment in Sagemaker, and install bert_sc
 Then, add your Hugging Face token to the environment (only for the token cost calculation):
 
     export HF_TOKEN="<YOUR_TOKEN>"
-
----
-
-### Results
-
-Sonnet 3.5 achieves 0.99 average BERT f1 score with only 3 few-shot examples, albeit with high output token costs and slow inference time.
 
 ---
 
@@ -91,6 +93,8 @@ Check your role details with:
 Prepare a zip file for handling requests:
 
     zip -r python.zip .
+
+The modified functions for the Lambda integration can be found under the lambda_files folder.
 
 Create the Lambda function:
 
@@ -150,9 +154,7 @@ Check your policy with details:
 
 Call your function with curl, Postman or through one of Lambda's built in function.
 
----
-
-### Example
+## Example
 
 The input is structured as a json object:
 
