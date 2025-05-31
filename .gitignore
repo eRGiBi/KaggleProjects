@@ -154,6 +154,10 @@ cython_debug/
 
 /.idea
 /HousePrices/data
+/HousePrices/YggdrassilRandomForest.py
+/HousePrices/saved_models
+/HousePrices/results
+
 
 /ISIC2024_SkinCancerDetection/data
 /ISIC2024_SkinCancerDetection/logs/
