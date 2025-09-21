@@ -1,70 +1,74 @@
-import pickle
-from copy import deepcopy
 from pickle import dump
+from copy import deepcopy
 
 import matplotlib
+import matplotlib.pyplot as plt
+
+import cupy as cp
 import numpy as np
 import pandas as pd
-import cupy as cp
-import sklearn.metrics
-from numpy import sort
 
-from scipy.stats import stats, uniform, rv_discrete, randint
-from sklearn.compose import TransformedTargetRegressor
-from sklearn.inspection import permutation_importance
-from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error, make_scorer, mean_squared_log_error, \
-    root_mean_squared_error
-# import category_encoders as ce
-
-from sklearn.linear_model import RidgeCV
-from sklearn.cluster import DBSCAN
-from sklearn.ensemble import RandomForestRegressor, IsolationForest, GradientBoostingRegressor
-from lightgbm import LGBMRegressor
-
-import xgboost as xgb
-
+# import ydf
 import tensorflow as tf
 # import tensorflow_decision_forests as tfdf
-import ydf
 
-from sklearn.metrics._dist_metrics import parse_version
+import xgboost as xgb
+from sklearn.linear_model import RidgeCV
+from sklearn.ensemble import RandomForestRegressor, IsolationForest, GradientBoostingRegressor
+
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import RobustScaler, StandardScaler, MinMaxScaler, QuantileTransformer
+from sklearn.compose import TransformedTargetRegressor
+
+import optuna
+from sklearn.model_selection import RandomizedSearchCV, KFold, GridSearchCV
+
+from sklearn.metrics._dist_metrics import parse_version
+from sklearn.inspection import permutation_importance
+from sklearn.metrics import (
+    r2_score,
+    mean_squared_error,
+    mean_absolute_error,
+    make_scorer,
+    mean_squared_log_error,
+    root_mean_squared_error
+)
+
+from scipy.stats import stats, uniform, rv_discrete, randint
 from tensorflow.python import ops
 
-from sklearn.model_selection import RandomizedSearchCV, KFold
-from sklearn.model_selection import GridSearchCV
-# from hyperopt import fmin, tpe, hp
-import optuna
-
-import matplotlib.pyplot as plt
-import seaborn as sns
-
-from ExperimentLogger import ExperimentLogger
+from experiment_logger import ExperimentLogger
 from metrics import calculate_metrics, pred_error_display, rmse, np_rmsle
 
 # TODO: Refactoring
 exp_logger = ExperimentLogger('HousePrices/submissions/experiment_aggregate.csv')
 
 
-def make_submission(model, test_data, ids, exp_name='experiment'):
+def make_submission(model, test_data, exp_name='experiment'):
+    """Create Kaggle submission file."""
     sample_submission_df = pd.read_csv('./HousePrices/data/sample_submission.csv')
     sample_submission_df['SalePrice'] = model.predict(test_data)
     sample_submission_df.to_csv('./HousePrices/submissions/submission_' + exp_name + '.csv', index=False)
     print(sample_submission_df.head())
 
 
-def tf_decision_forests(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED):
-    # Random Forest regression with TensorFlow Decision Forests
+def tf_decision_forests(train_ds_pd, valid_ds_pd, test, ids, exp_name, seed):
+    """Run Random Forest regression with TensorFlow Decision Forests."""
 
     label = 'SalePrice'
     train_ds_pd = train_ds_pd.drop(['SalePrice'], axis=1)
-    train_ds = tfdf.keras.pd_dataframe_to_tf_dataset(train_ds_pd, label=label,
-                                                     task=tfdf.keras.Task.REGRESSION,
-                                                     max_num_classes=700)
-    valid_ds = tfdf.keras.pd_dataframe_to_tf_dataset(valid_ds_pd, label=label,
-                                                     task=tfdf.keras.Task.REGRESSION,
-                                                     max_num_classes=700)
+    train_ds = tfdf.keras.pd_dataframe_to_tf_dataset(
+        train_ds_pd,
+        label=label,
+        task=tfdf.keras.Task.REGRESSION,
+        max_num_classes=700
+    )
+    valid_ds = tfdf.keras.pd_dataframe_to_tf_dataset(
+        valid_ds_pd,
+        label=label,
+        task=tfdf.keras.Task.REGRESSION,
+        max_num_classes=700
+    )
     tuner = tfdf.tuner.RandomSearch(num_trials=20, trial_num_threads=3)
 
     # Hyperparameters to optimize
@@ -73,19 +77,21 @@ def tf_decision_forests(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED):
 
     print(tuner.train_config())
 
-    model = tfdf.keras.RandomForestModel(tuner=tuner, task=tfdf.keras.Task.REGRESSION,
-                                         bootstrap_training_dataset=True,
-                                         bootstrap_size_ratio=1.0,
-                                         categorical_algorithm='CART',  # RANDOM
-                                         growing_strategy='LOCAL',  # BEST_FIRST_GLOBAL
-                                         honest=False,
-                                         min_examples=1,
-                                         missing_value_policy='GLOBAL_IMPUTATION',
-                                         num_candidate_attributes=0,
-                                         random_seed=SEED,
-                                         winner_take_all=True,
-                                         verbose=2)
-
+    model = tfdf.keras.RandomForestModel(
+        tuner=tuner,
+        task=tfdf.keras.Task.REGRESSION,
+        bootstrap_training_dataset=True,
+        bootstrap_size_ratio=1.0,
+        categorical_algorithm='CART',  # RANDOM
+        growing_strategy='LOCAL',  # BEST_FIRST_GLOBAL
+        honest=False,
+        min_examples=1,
+        missing_value_policy='GLOBAL_IMPUTATION',
+        num_candidate_attributes=0,
+        random_seed=seed,
+        winner_take_all=True,
+        verbose=2
+    )
     model.compile(metrics=["mse"])
 
     model.fit(x=train_ds)
@@ -111,7 +117,7 @@ def tf_decision_forests(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED):
     inspector = model.make_inspector()
     inspector.evaluation()
 
-    print(f"Available variable importance:")
+    print("Available variable importance:")
     for importance in inspector.variable_importances().keys():
         print("\t", importance)
     print()
@@ -146,14 +152,17 @@ def tf_decision_forests(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED):
 
     train_r2, valid_r2, RMSE = calculate_metrics(model, train_ds_pd, valid_ds_pd, label)
 
-    exp_logger.save({"Id": exp_name, "Model": "TensorFlow Decision Forests",
-                     "Train_R2": train_r2, "Validation_R2": valid_r2, "RMSE": RMSE,
-                     "Hyperparameters": model.predefined_hyperparameters()})
+    exp_logger.save(
+        {"Id": exp_name, "Model": "TensorFlow Decision Forests",
+        "Train_R2": train_r2, "Validation_R2": valid_r2, "RMSE": RMSE,
+        "Hyperparameters": model.predefined_hyperparameters()}
+    )
 
     model.save("./saved_models/")
 
 
-def sklearn_random_forest(data, valid_ds_pd, test, ids, exp_name, SEED, tune=False):
+def sklearn_random_forest(data, valid_ds_pd, test, seed, tune=False):
+    """Run Random Forest Regression with scikit-learn."""
     print("SKLearn Random Forest Regressor: -------------------")
 
     x_train = np.array(data)
@@ -163,7 +172,6 @@ def sklearn_random_forest(data, valid_ds_pd, test, ids, exp_name, SEED, tune=Fal
     y_test = valid_ds_pd['SalePrice']
 
     if not tune:
-
         # rf = RandomForestRegressor(n_estimators=750,
         #                            max_depth=16,
         #                            criterion='friedman_mse',
@@ -178,28 +186,30 @@ def sklearn_random_forest(data, valid_ds_pd, test, ids, exp_name, SEED, tune=Fal
         #                            verbose=1
         #                            )
 
-        rf = RandomForestRegressor(n_estimators=2100,
-                                   max_depth=16,
-                                   criterion='squared_error',
-                                   min_samples_split=2,
-                                   min_samples_leaf=2,
-                                   max_leaf_nodes=None,
-                                   min_impurity_decrease=0,
-                                   max_features=None,
-                                   bootstrap=True,
-                                   max_samples=1.0,
-                                   oob_score=True,
-                                   n_jobs=-1,
-                                   random_state=SEED,
-                                   verbose=1)
-
+        rf = RandomForestRegressor(
+            n_estimators=2100,
+            max_depth=16,
+            criterion='squared_error',
+            min_samples_split=2,
+            min_samples_leaf=2,
+            max_leaf_nodes=None,
+            min_impurity_decrease=0,
+            max_features=None,
+            bootstrap=True,
+            max_samples=1.0,
+            oob_score=True,
+            n_jobs=-1,
+            random_state=seed,
+            verbose=1
+        )
         rf.fit(x_train, y_train)
 
         # with open("HousePrices/saved_models/best_skl_rf_model.joblib", "wb") as f:
         #     dump(rf, f, protocol=5)
 
     else:
-        random_grid = {'criterion': [  #'squared_error',
+        random_grid = {
+            'criterion': [  #'squared_error',
             'friedman_mse'],
             'n_estimators': [int(x) for x in np.linspace(start=500, stop=3500, num=100)],
             'max_features': ['auto', 'sqrt', None],
@@ -213,15 +223,17 @@ def sklearn_random_forest(data, valid_ds_pd, test, ids, exp_name, SEED, tune=Fal
             'oob_score': [True, False]
         }
 
-        rfr = RandomForestRegressor(n_jobs=-1, random_state=SEED, verbose=2)
+        rfr = RandomForestRegressor(n_jobs=-1, random_state=seed, verbose=2)
 
-        rf = RandomizedSearchCV(estimator=rfr,
-                                param_distributions=random_grid,
-                                n_iter=1000,
-                                cv=5,
-                                verbose=1,
-                                random_state=SEED,
-                                n_jobs=-1)
+        rf = RandomizedSearchCV(
+            estimator=rfr,
+            param_distributions=random_grid,
+            n_iter=1000,
+            cv=5,
+            verbose=1,
+            random_state=seed,
+            n_jobs=-1
+        )
 
         search = rf.fit(x_train, y_train)
 
@@ -245,26 +257,35 @@ def sklearn_random_forest(data, valid_ds_pd, test, ids, exp_name, SEED, tune=Fal
     print(f'Test Mean Absolute Error (MAE): {test_mae:.2f}')
 
 
-def yggdrassil_random_forest(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit=False, tune=False):
+def yggdrassil_random_forest(
+        train_ds_pd,
+        valid_ds_pd,
+        test,
+        exp_name,
+        seed,
+        submit=False,
+        tune=False
+):
+    """Run Random Forest Regressoin with Yggdrassil DF."""
+
     if not tune:
-
-        # Best found hyperparameters
-
-        learner = ydf.RandomForestLearner(label="SalePrice",
-                                          task=ydf.Task.REGRESSION,
-                                          include_all_columns=True,
-                                          features=[
-                                              # ydf.Feature("PoolArea", monotonic=+1),
-                                          ],
-                                          num_trees=750,
-                                          max_depth=16,
-                                          bootstrap_size_ratio=0.925,
-                                          categorical_algorithm="RANDOM",
-                                          growing_strategy="LOCAL",
-                                          winner_take_all=False,
-                                          num_threads=-1,
-                                          random_seed=SEED,
-                                          )
+        # With best found hyperparameters
+        learner = ydf.RandomForestLearner(
+            label="SalePrice",
+            task=ydf.Task.REGRESSION,
+            include_all_columns=True,
+            features=[
+              # ydf.Feature("PoolArea", monotonic=+1),
+            ],
+            num_trees=750,
+            max_depth=16,
+            bootstrap_size_ratio=0.925,
+            categorical_algorithm="RANDOM",
+            growing_strategy="LOCAL",
+            winner_take_all=False,
+            num_threads=-1,
+            random_seed=seed,
+        )
 
         model = learner.train(ds=train_ds_pd, verbose=2)
 
@@ -294,17 +315,17 @@ def yggdrassil_random_forest(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED
 
         train_r2, valid_r2, RMSE = calculate_metrics(model, train_ds_pd, valid_ds_pd)
 
-        exp_logger.save({"Id": exp_name, "Model": "Tuned Yggdrasil Random Forest",
-                         "Train_R2": train_r2, "Validation_R2": valid_r2, "RMSE": RMSE,
-                         "Hyperparameters": "num_trees=750, max_depth=16, bootstrap_size_ratio=0.925, "}
-                        )
+        exp_logger.save(
+            {"Id": exp_name, "Model": "Tuned Yggdrasil Random Forest",
+             "Train_R2": train_r2, "Validation_R2": valid_r2, "RMSE": RMSE,
+             "Hyperparameters": "num_trees=750, max_depth=16, bootstrap_size_ratio=0.925, "}
+        )
 
         print("Yggdrasil Submission: -------------------")
-        make_submission(model, test, ids, exp_name)
+        make_submission(model, test, exp_name)
 
     else:
-
-        print("Hyperparameter tuning: -------------------")
+        print("Tuning Hyperparameters : -------------------")
 
         tuner = ydf.RandomSearchTuner(num_trials=1000)
 
@@ -318,16 +339,17 @@ def yggdrassil_random_forest(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED
         tuner.choice("growing_strategy", ["LOCAL", "BEST_FIRST_GLOBAL"])
         tuner.choice("winner_take_all", [True, False])
 
-        learner = ydf.RandomForestLearner(label="SalePrice",
-                                          tuner=tuner,
-                                          task=ydf.Task.REGRESSION,
-                                          include_all_columns=True,
-                                          features=[
-                                              # ydf.Feature("PoolArea", monotonic=+1),
-                                          ],
-                                          random_seed=SEED,
-                                          num_threads=11
-                                          )
+        learner = ydf.RandomForestLearner(
+            label="SalePrice",
+            tuner=tuner,
+            task=ydf.Task.REGRESSION,
+            include_all_columns=True,
+            features=[
+              # ydf.Feature("PoolArea", monotonic=+1),
+            ],
+            random_seed=seed,
+            num_threads=11
+        )
 
         model = learner.train(ds=train_ds_pd, verbose=1)
 
@@ -361,10 +383,12 @@ def yggdrassil_random_forest(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED
 
         train_r2, valid_r2, RMSE = calculate_metrics(model, train_ds_pd, valid_ds_pd)
 
-        exp_logger.save({"Id": exp_name, "Model": "Tuned Yggdrasil Random Forest",
-                         "Train_R2": train_r2, "Validation_R2": valid_r2, "RMSE": RMSE,
-                         # "Hyperparameters": model.predefined_hyperparameters()
-                         })
+        exp_logger.save(
+            {"Id": exp_name, "Model": "Tuned Yggdrasil Random Forest",
+             "Train_R2": train_r2, "Validation_R2": valid_r2, "RMSE": RMSE,
+             # "Hyperparameters": model.predefined_hyperparameters()
+            }
+        )
 
         logs = model.hyperparameter_optimizer_logs()
         top_score = max(t.score for t in logs.trials)
@@ -380,17 +404,16 @@ def yggdrassil_random_forest(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED
 
         print("Yggdrasil Submission: -------------------")
         if submit:
-            make_submission(model, test, ids, exp_name)
+            make_submission(model, test, exp_name)
 
 
-def ridge_regression(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit=False, tune=False):
+def ridge_regression(train_ds_pd, valid_ds_pd, test, seed):
+    """Run Ridge regression."""
     train_y = train_ds_pd['SalePrice']
     train_x = deepcopy(train_ds_pd).drop('SalePrice', axis=1)
 
     valid_y = valid_ds_pd['SalePrice']
     valid_x = deepcopy(valid_ds_pd).drop('SalePrice', axis=1)
-
-    kf = KFold(n_splits=12, random_state=SEED, shuffle=True)
 
     # transformer = RobustScaler(with_centering=True,
     #                            with_scaling=True,
@@ -409,52 +432,66 @@ def ridge_regression(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit
         500, 1000, 2000, 3000, 5000, 10000, 20000, 30000, 50000, 100000,
     ], dtype=np.float64)
 
-    rmsle_scorer = make_scorer(lambda y_true, y_pred: np.sqrt(mean_squared_log_error(y_true + 1, y_pred + 1)),
-                               greater_is_better=False)
-    rmse_scorer = make_scorer(lambda y_true, y_pred: np.sqrt(mean_squared_error(y_true, y_pred)))
+    rmsle_scorer = make_scorer(
+        lambda y_true, y_pred: np.sqrt(mean_squared_log_error(y_true + 1, y_pred + 1)),
+        greater_is_better=False
+    )
+    rmse_scorer = make_scorer(
+        lambda y_true, y_pred: np.sqrt(mean_squared_error(y_true, y_pred))
+    )
 
-    ridge_regressor = RidgeCV(alphas=ridge_alphas,
-                              cv=None,
-                              scoring="neg_root_mean_squared_error",
-                              fit_intercept=False,
-                              gcv_mode='auto',
-                              store_cv_results=True,
-                              alpha_per_target=False,
-                              )
+    ridge_regressor = RidgeCV(
+        alphas=ridge_alphas,
+        cv=None,
+        scoring="neg_root_mean_squared_error",
+        fit_intercept=False,
+        gcv_mode='auto',
+        store_cv_results=True,
+        alpha_per_target=False,
+    )
 
     transformed_ridge = TransformedTargetRegressor(
         ridge_regressor,
-        transformer=QuantileTransformer(output_distribution='normal',
-                                        ignore_implicit_zeros=False,
-                                        random_state=SEED),
+        transformer=QuantileTransformer(
+            output_distribution='normal',
+            ignore_implicit_zeros=False,
+            random_state=seed
+        ),
         check_inverse=True,
         # inverse_func=np.expm1,
     )
     ridge_pipeline = make_pipeline(
-        # QuantileTransformer(output_distribution='normal',
-        #                     ignore_implicit_zeros=True,
-        #                     random_state=SEED),
-        RobustScaler(with_centering=False,
-                     with_scaling=True,
-                     quantile_range=(5.0, 95.0)),
+        # QuantileTransformer(
+        #     output_distribution='normal',
+        #     ignore_implicit_zeros=True,
+        #     random_state=seed
+        # ),
+        RobustScaler(
+            with_centering=False,
+            with_scaling=True,
+            quantile_range=(5.0, 95.0)
+        ),
         # MinMaxScaler(feature_range=(0, 1)),
         transformed_ridge,
-        verbose=True)
+        verbose=True
+    )
 
     print("Pipeline components:", ridge_pipeline.steps)
 
-    fitted_ridge_model = ridge_pipeline.fit(X=np.concatenate((train_x, valid_x), axis=0),
-                                            y=np.concatenate((train_y, valid_y), axis=0))
+    fitted_ridge_model = ridge_pipeline.fit(
+        X=np.concatenate((train_x, valid_x), axis=0), y=np.concatenate((train_y, valid_y), axis=0))
 
     # with open("HousePrices/saved_models/best_ridge_pipline.joblib", "wb") as f:
     #     dump(fitted_ridge_model, f, protocol=5)
 
     print()
     print("Regression Results: -------------------")
-    train_r2, valid_r2, train_rmse, valid_rmse, train_rmsle, valid_rmsle = calculate_metrics(fitted_ridge_model,
-                                                                                             train_ds_pd, valid_ds_pd,
-                                                                                             predict_on_full_set=False,
-                                                                                             print_predictions=False)
+    train_r2, valid_r2, train_rmse, valid_rmse, train_rmsle, valid_rmsle = calculate_metrics(
+        fitted_ridge_model,
+        train_ds_pd, valid_ds_pd,
+        predict_on_full_set=False,
+        print_predictions=False
+    )
     print()
 
     ridgecv_step = transformed_ridge.regressor_
@@ -500,8 +537,11 @@ def ridge_regression(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit
         plt.tight_layout()
         plt.show()
 
-        quantile_transformer = QuantileTransformer(output_distribution='normal', ignore_implicit_zeros=False,
-                                                   random_state=SEED)
+        quantile_transformer = QuantileTransformer(
+            output_distribution='normal',
+            ignore_implicit_zeros=False,
+            random_state=seed
+        )
         transformed_x = quantile_transformer.fit_transform(np.concatenate((train_x, valid_x), axis=0))
         std_dev_transformed = transformed_x.std(axis=0)
 
@@ -524,412 +564,418 @@ def ridge_regression(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit
         plt.show()
 
 
-def gradient_booster(train_ds_pd, valid_ds_pd, test, ids, exp_name, SEED, submit=False, tune=False):
+def skl_gradient_booster(train_ds_pd, valid_ds_pd, test, exp_name, seed, tune=False):
+    """Run scikit-learn Gradient Boosting regression."""
     visualize = True
-
-    use_xgb = True
-    lgbm = False
-    use_skl = False
 
     train_y = train_ds_pd['SalePrice']
     train_x = deepcopy(train_ds_pd).drop('SalePrice', axis=1)
     valid_y = valid_ds_pd['SalePrice']
     valid_x = deepcopy(valid_ds_pd).drop('SalePrice', axis=1)
 
-    regressor = None
-    monotonic_cst = {}
+    if not tune:
+        params = {
+            'n_estimators': 3500,
+            'criterion': 'friedman_mse',
+            'learning_rate': 0.01,
+            'subsample': 0.5,
+            'max_depth': 4,
+            'max_features': 'sqrt',
+            'min_samples_leaf': 4,
+            'min_samples_split': 7,
+            'loss': 'huber',
+            'random_state': seed,
+            'verbose': 2
+        }
 
-    # Sklearn Gradient Boosting
+        regressor = GradientBoostingRegressor(**params)
+        # regressor = pickle.load(open("HousePrices/saved_models/best_skl_gb_model.joblib", "rb"))
 
-    if use_skl:
+        model = regressor.fit(train_x, train_y)
 
-        if not tune:
-
-            params = {
-                'n_estimators': 3500,
-                'criterion': 'friedman_mse',
-                'learning_rate': 0.01,
-                'subsample': 0.5,
-                'max_depth': 4,
-                'max_features': 'sqrt',
-                'min_samples_leaf': 4,
-                'min_samples_split': 7,
-                'loss': 'huber',
-                'random_state': SEED,
-                'verbose': 2
-            }
-
-            regressor = GradientBoostingRegressor(**params)
-
-            # regressor = pickle.load(open("HousePrices/saved_models/best_skl_gb_model.joblib", "rb"))
-
-            model = regressor.fit(train_x, train_y)
-
-            print("SKL Gradient Boosting Regressor: -------------------")
-            calculate_metrics(model, train_ds_pd, valid_ds_pd, predict_on_full_set=False, print_predictions=False)
-
-            if visualize:
-                feature_importance = regressor.feature_importances_
-                sorted_idx = np.argsort(feature_importance)[-10:]
-
-                pos = np.arange(sorted_idx.shape[0]) + 0.5
-                fig = plt.figure(figsize=(12, 6))
-                plt.subplot(1, 2, 1)
-                plt.barh(pos, feature_importance[sorted_idx], align="center")
-                plt.yticks(pos, np.array(train_ds_pd.columns)[sorted_idx])
-                plt.title("Feature Importance (MDI)")
-
-                result = permutation_importance(
-                    regressor, valid_x, valid_y, n_repeats=10, random_state=SEED, n_jobs=-1)
-
-                sorted_idx = result.importances_mean.argsort()
-                sorted_idx = sorted_idx[-10:]
-                plt.subplot(1, 2, 2)
-
-                tick_labels_parameter_name = (
-                    "tick_labels"
-                    if parse_version(matplotlib.__version__) >= parse_version("3.9")
-                    else "labels"
-                )
-
-                tick_labels_dict = {
-                    tick_labels_parameter_name: np.array(train_ds_pd.columns)[sorted_idx]
-                }
-                plt.boxplot(result.importances[sorted_idx].T, vert=False, **tick_labels_dict)
-                plt.title("Permutation Importance (test set)")
-                fig.tight_layout()
-                plt.show()
-
-                with open("HousePrices/saved_models/best_skl_gb_model.joblib", "wb") as f:
-                    dump(model, f, protocol=5)
-
-        else:
-            parameter_grid = {
-                'n_estimators': [1800, 3500, 4500, 5500],
-                'max_depth': [4],
-                'learning_rate': [0.1, 0.05, 0.01],
-                'subsample': [0.5],
-                'min_samples_leaf': [7, 4],
-                'min_samples_split': [7],
-            }
-
-            regressor = GradientBoostingRegressor(random_state=SEED, verbose=2)
-
-            grid_search = GridSearchCV(regressor, parameter_grid, cv=5, scoring='neg_root_mean_squared_log_error',
-                                       n_jobs=-1,
-                                       return_train_score=True,
-                                       verbose=3)
-
-            grid_search.fit(train_x, train_y)
-
-            print("Best set of hyperparameters: ", grid_search.best_params_)
-            print("Best score: ", grid_search.best_score_)
-
-            df = pd.DataFrame(grid_search.cv_results_)
-            print(df)
-            df.to_csv("HousePrices/results/skl_grb_grid_search_results.csv")
-
-            plt.show()
+        print("SKL Gradient Boosting Regressor: -------------------")
+        calculate_metrics(model, train_ds_pd, valid_ds_pd, predict_on_full_set=False, print_predictions=False)
 
         if visualize:
-            # xgb.plot_importance(bst, max_num_features=20)
-            # plt.show()
+            feature_importance = regressor.feature_importances_
+            sorted_idx = np.argsort(feature_importance)[-10:]
 
-            test_score = np.zeros((params["n_estimators"]), dtype=np.float64)
-            for i, y_pred in enumerate(regressor.staged_predict(valid_x)):
-                test_score[i] = mean_squared_error(valid_y, y_pred)
+            pos = np.arange(sorted_idx.shape[0]) + 0.5
+            fig = plt.figure(figsize=(12, 6))
+            plt.subplot(1, 2, 1)
+            plt.barh(pos, feature_importance[sorted_idx], align="center")
+            plt.yticks(pos, np.array(train_ds_pd.columns)[sorted_idx])
+            plt.title("Feature Importance (MDI)")
 
-            fig = plt.figure(figsize=(6, 6))
-            plt.subplot(1, 1, 1)
-            plt.title("Deviance")
-            plt.plot(
-                np.arange(params["n_estimators"]) + 1,
-                regressor.train_score_,
-                "b-",
-                label="Training Set Deviance",
+            result = permutation_importance(
+                regressor, valid_x, valid_y, n_repeats=10, random_state=seed, n_jobs=-1
             )
-            plt.plot(
-                np.arange(params["n_estimators"]) + 1, test_score, "r-", label="Test Set Deviance"
+
+            sorted_idx = result.importances_mean.argsort()
+            sorted_idx = sorted_idx[-10:]
+            plt.subplot(1, 2, 2)
+
+            tick_labels_parameter_name = (
+                "tick_labels"
+                if parse_version(matplotlib.__version__) >= parse_version("3.9")
+                else "labels"
             )
-            plt.legend(loc="upper right")
-            plt.xlabel("Boosting Iterations")
-            plt.ylabel("Deviance")
+
+            tick_labels_dict = {
+                tick_labels_parameter_name: np.array(train_ds_pd.columns)[sorted_idx]
+            }
+            plt.boxplot(result.importances[sorted_idx].T, vert=False, **tick_labels_dict)
+            plt.title("Permutation Importance (test set)")
             fig.tight_layout()
             plt.show()
 
-    # XGBoost
-    if use_xgb:
+            with open("HousePrices/saved_models/best_skl_gb_model.joblib", "wb") as f:
+                dump(model, f, protocol=5)
 
-        accuracy_history = []
+    else:
+        parameter_grid = {
+            'n_estimators': [1800, 3500, 4500, 5500],
+            'max_depth': [4],
+            'learning_rate': [0.1, 0.05, 0.01],
+            'subsample': [0.5],
+            'min_samples_leaf': [7, 4],
+            'min_samples_split': [7],
+        }
 
-        dtrain = xgb.DMatrix(train_x.to_numpy(), label=train_y.to_numpy(), nthread=-1, silent=True)
-        dvalid = xgb.DMatrix(valid_x.to_numpy(), label=valid_y.to_numpy(), nthread=-1, silent=True)
+        regressor = GradientBoostingRegressor(random_state=seed, verbose=2)
 
-        dtrain.set_float_info("label_lower_bound", train_y.to_numpy())
-        dtrain.set_float_info("label_upper_bound", train_y.to_numpy())
-        dvalid.set_float_info("label_lower_bound", valid_y.to_numpy())
-        dvalid.set_float_info("label_upper_bound", valid_y.to_numpy())
-
-        eval_callback = xgb.callback.EvaluationMonitor(rank=0, period=5, show_stdv=True)
-        early_stop = xgb.callback.EarlyStopping(
-            rounds=100,
-            # min_delta=1e-3,
-            save_best=True,
-            maximize=False,
-            data_name="valid",
-            metric_name="rmse",
+        grid_search = GridSearchCV(
+            regressor,
+            parameter_grid,
+            cv=5,
+            scoring='neg_root_mean_squared_log_error',
+            n_jobs=-1,
+            return_train_score=True,
+            verbose=3
         )
-        learning_rates = [0.3, 0.1]
-        learning_rate_scheduler = xgb.callback.LearningRateScheduler(learning_rates)
 
-        if tune:
+        grid_search.fit(train_x, train_y)
 
-            use_optuna = False
-            use_skl_api = True
+        print("Best set of hyperparameters: ", grid_search.best_params_)
+        print("Best score: ", grid_search.best_score_)
 
-            if use_optuna:
+        df = pd.DataFrame(grid_search.cv_results_)
+        print(df)
+        df.to_csv("HousePrices/results/skl_grb_grid_search_results.csv")
 
-                # Hyperparameters common to all trials
-                base_xgb_params = {'verbosity': 1,
-                                   'device': 'cpu',
-                                   'nthread': 11,
-                                   'seed': SEED,
-                                   'booster': 'gblinear',
-                                   'objective': 'reg:squarederror',
-                                   'eval_metric': 'rmse',
-                                   'tree_method': 'exact',
-                                   'scale_pos_weight': 1,
-                                   'validate_parameters': True,
-                                   }
-                base_skl_api_params = {'verbosity': 1,
-                                       'device': 'cpu',
-                                       'random_state': SEED,
-                                       'objective': 'reg:squarederror',
-                                       'eval_metric': root_mean_squared_error,
-                                       'importance_type': 'weight',
-                                       'max_bin ': 512,
-                                       'tree_method': 'exact',
-                                       'scale_pos_weight': 1,
-                                       'n_jobs': 1,
-                                       }
+        plt.show()
 
-                def objective(trial):
+    if visualize:
+        # xgb.plot_importance(bst, max_num_features=20)
+        # plt.show()
 
-                    pruning_callback = optuna.integration.XGBoostPruningCallback(trial, 'reg:squaredlogerror')
+        test_score = np.zeros((params["n_estimators"]), dtype=np.float64)
+        for i, y_pred in enumerate(regressor.staged_predict(valid_x)):
+            test_score[i] = mean_squared_error(valid_y, y_pred)
 
-                    if use_skl_api:
-                        params = {'n_estimators': trial.suggest_int('n_estimators', 1000, 4000),
-                                  'learning_rate': trial.suggest_float('learning_rate', 0.001, 0.7, log=False),
-                                  'max_depth': trial.suggest_int('max_depth', 2, 16),
-                                  'grow_policy': trial.suggest_categorical('grow_policy', ['depthwise', 'lossguide']),
-                                  'subsample': trial.suggest_float('subsample', 0.5, .6),
-                                  'max_leaves': trial.suggest_int('max_leaves', 2, 32),
-                                  'min_child_weight': 0,
-                                  # trial.suggest_float('min_child_weight', 1e-2, 3.0, log=True),
-                                  'gamma': trial.suggest_float('gamma', 0.0, 1.0),
-                                  'reg_lambda': trial.suggest_float('lambda', 1e-2, 1.0, log=True),
-                                  'reg_alpha': trial.suggest_float('alpha', 1e-6, 0.01, log=True)}  # Search space
+        fig = plt.figure(figsize=(6, 6))
+        plt.subplot(1, 1, 1)
+        plt.title("Deviance")
+        plt.plot(
+            np.arange(params["n_estimators"]) + 1,
+            regressor.train_score_,
+            "b-",
+            label="Training Set Deviance",
+        )
+        plt.plot(
+            np.arange(params["n_estimators"]) + 1, test_score, "r-", label="Test Set Deviance"
+        )
+        plt.legend(loc="upper right")
+        plt.xlabel("Boosting Iterations")
+        plt.ylabel("Deviance")
+        fig.tight_layout()
+        plt.show()
 
-                        params.update(base_skl_api_params)
 
-                        regressor = xgb.XGBRegressor(**params,
-                                                     callbacks=[early_stop])
+def run_xgboost(train_ds_pd, valid_ds_pd, test, exp_name, seed, tune=False):
+    """Run xgboost gradient boosting regression."""
+    visualize = True
 
-                        regressor.fit(train_x, train_y, eval_set=[(valid_x, valid_y)], verbose=True)
+    train_y = train_ds_pd['SalePrice']
+    train_x = deepcopy(train_ds_pd).drop('SalePrice', axis=1)
+    valid_y = valid_ds_pd['SalePrice']
+    valid_x = deepcopy(valid_ds_pd).drop('SalePrice', axis=1)
 
-                        return rmse(valid_y, regressor.predict(valid_x))
+    dtrain = xgb.DMatrix(train_x.to_numpy(), label=train_y.to_numpy(), nthread=-1, silent=True)
+    dvalid = xgb.DMatrix(valid_x.to_numpy(), label=valid_y.to_numpy(), nthread=-1, silent=True)
 
-                    else:
-                        params = {'num_boost_round': trial.suggest_int('num_boost_round', 1000, 4000),
-                                  'eta': trial.suggest_float('learning_rate', 0.001, 0.7, log=False),
-                                  'max_depth': trial.suggest_int('max_depth', 2, 16),
-                                  'grow_policy': trial.suggest_categorical('grow_policy', ['depthwise', 'lossguide']),
-                                  'subsample': trial.suggest_float('subsample', 0.5, .6),
-                                  'max_leaves': trial.suggest_int('max_leaves', 2, 32),
-                                  'min_child_weight': 0,
-                                  # trial.suggest_float('min_child_weight', 1e-2, 3.0, log=True),
-                                  'gamma': trial.suggest_float('gamma', 0.0, 1.0),
-                                  'lambda': trial.suggest_float('lambda', 1e-2, 1.0, log=True),
-                                  'alpha': trial.suggest_float('alpha', 1e-6, 0.01, log=True)}  # Search space
+    dtrain.set_float_info("label_lower_bound", train_y.to_numpy())
+    dtrain.set_float_info("label_upper_bound", train_y.to_numpy())
+    dvalid.set_float_info("label_lower_bound", valid_y.to_numpy())
+    dvalid.set_float_info("label_upper_bound", valid_y.to_numpy())
 
-                        params.update(base_xgb_params)
+    eval_callback = xgb.callback.EvaluationMonitor(rank=0, period=5, show_stdv=True)
+    early_stop = xgb.callback.EarlyStopping(
+        rounds=100,
+        # min_delta=1e-3,
+        save_best=True,
+        maximize=False,
+        data_name="valid",
+        metric_name="rmse",
+    )
+    learning_rates = [0.3, 0.1]
+    learning_rate_scheduler = xgb.callback.LearningRateScheduler(learning_rates)
 
-                        bst = xgb.train(params, dtrain,
-                                        # num_boost_round=10000,
-                                        evals=[(dvalid, 'valid')],
-                                        early_stopping_rounds=100,
-                                        verbose_eval=10,
-                                        callbacks=[
-                                            eval_callback,
-                                            # early_stop,
-                                            # pruning_callback,
-                                        ])
+    if tune:
+        use_optuna = False
+        use_skl_api = True
 
-                        print("Best score: ", bst.best_score, "at iteration: ", bst.best_iteration)
+        if use_optuna:
+            # Hyperparameters common to all trials
+            base_xgb_params = {
+                'verbosity': 1,
+                'device': 'cpu',
+                'nthread': 11,
+                'seed': seed,
+                'booster': 'gblinear',
+                'objective': 'reg:squarederror',
+                'eval_metric': 'rmse',
+                'tree_method': 'exact',
+                'scale_pos_weight': 1,
+                'validate_parameters': True,
+            }
+            base_skl_api_params = {
+                'verbosity': 1,
+                'device': 'cpu',
+                'random_state': seed,
+                'objective': 'reg:squarederror',
+                'eval_metric': root_mean_squared_error,
+                'importance_type': 'weight',
+                'max_bin ': 512,
+                'tree_method': 'exact',
+                'scale_pos_weight': 1,
+                'n_jobs': 1,
+            }
 
-                        return bst.best_score
+            def objective(trial):
+                pruning_callback = optuna.integration.XGBoostPruningCallback(trial, 'reg:squaredlogerror')
 
-                # Run hyperparameter search
-                study = optuna.create_study(direction='minimize', study_name=exp_name)
-                study.optimize(objective,
-                               n_trials=200,
-                               callbacks=[],
-                               n_jobs=11,
-                               show_progress_bar=False)
-
-                print('Completed hyperparameter tuning with best = {}.'.format(study.best_trial.value))
-                params = {}
-                params.update(base_skl_api_params) if use_skl_api else params.update(base_xgb_params)
-                params.update(study.best_trial.params)
-
-                # Re-run training with the best hyperparameter combination
-                res: xgb.callback.TrainingCallback.EvalsLog = {}
-
-                print('Re-running the best trial... params = {}'.format(params))
                 if use_skl_api:
-                    bst = xgb.XGBRegressor(**params)
-                    bst.fit(train_x, train_y,
-                            eval_set=[(valid_x, valid_y)],
-                            verbose=True, )
+                    params = {
+                        'n_estimators': trial.suggest_int('n_estimators', 1000, 4000),
+                        'learning_rate': trial.suggest_float('learning_rate', 0.001, 0.7, log=False),
+                        'max_depth': trial.suggest_int('max_depth', 2, 16),
+                        'grow_policy': trial.suggest_categorical('grow_policy', ['depthwise', 'lossguide']),
+                        'subsample': trial.suggest_float('subsample', 0.5, .6),
+                        'max_leaves': trial.suggest_int('max_leaves', 2, 32),
+                        'min_child_weight': 0,
+                        # trial.suggest_float('min_child_weight', 1e-2, 3.0, log=True),
+                        'gamma': trial.suggest_float('gamma', 0.0, 1.0),
+                        'reg_lambda': trial.suggest_float('lambda', 1e-2, 1.0, log=True),
+                        'reg_alpha': trial.suggest_float('alpha', 1e-6, 0.01, log=True) # Search space
+                    }
+
+                    params.update(base_skl_api_params)
+
+                    regressor = xgb.XGBRegressor(**params,
+                                                 callbacks=[early_stop])
+
+                    regressor.fit(train_x, train_y, eval_set=[(valid_x, valid_y)], verbose=True)
+
+                    return rmse(valid_y, regressor.predict(valid_x))
 
                 else:
+                    params = {
+                        'num_boost_round': trial.suggest_int('num_boost_round', 1000, 4000),
+                        'eta': trial.suggest_float('learning_rate', 0.001, 0.7, log=False),
+                        'max_depth': trial.suggest_int('max_depth', 2, 16),
+                        'grow_policy': trial.suggest_categorical('grow_policy', ['depthwise', 'lossguide']),
+                        'subsample': trial.suggest_float('subsample', 0.5, .6),
+                        'max_leaves': trial.suggest_int('max_leaves', 2, 32),
+                        'min_child_weight': 0,
+                        # trial.suggest_float('min_child_weight', 1e-2, 3.0, log=True),
+                        'gamma': trial.suggest_float('gamma', 0.0, 1.0),
+                        'lambda': trial.suggest_float('lambda', 1e-2, 1.0, log=True),
+                        'alpha': trial.suggest_float('alpha', 1e-6, 0.01, log=True) # Search space
+                    }
 
-                    bst = xgb.train(params, dtrain,
-                                    # num_boost_round=10000,
-                                    evals=[(dtrain, 'train'), (dvalid, 'valid')],
-                                    evals_result=res,
-                                    early_stopping_rounds=100,
-                                    verbose_eval=True,
-                                    # custom_metric=np_rmsle,
-                                    callbacks=[eval_callback])
+                    params.update(base_xgb_params)
 
-                bst.save_model('HousePrices/saved_models/best_xgb_model.json')
+                    bst = xgb.train(
+                        params,
+                        dtrain,
+                        # num_boost_round=10000,
+                        evals=[(dvalid, 'valid')],
+                        early_stopping_rounds=100,
+                        verbose_eval=10,
+                        callbacks=[
+                            eval_callback,
+                            # early_stop,
+                            # pruning_callback,
+                        ]
+                    )
+                    print("Best score: ", bst.best_score, "at iteration: ", bst.best_iteration)
 
-                optuna.visualization.plot_param_importances(study)
+                    return bst.best_score
 
-                optuna.visualization.plot_parallel_coordinate(study, params=['lambda', 'alpha'])
+            # Run hyperparameter search
+            study = optuna.create_study(direction='minimize', study_name=exp_name)
+            study.optimize(
+                objective,
+                n_trials=200,
+                callbacks=[],
+                n_jobs=11,
+                show_progress_bar=False
+            )
 
-                # optuna.visualization.plot_intermediate_values(study)
+            print('Completed hyperparameter tuning with best = {}.'.format(study.best_trial.value))
+            params = {}
+            params.update(base_skl_api_params) if use_skl_api else params.update(base_xgb_params)
+            params.update(study.best_trial.params)
 
-                optuna.visualization.plot_contour(study, params=['lambda', 'alpha'])
-                optuna.visualization.plot_contour(study, params=['learning_rate', 'alpha'])
+            # Re-run training with the best hyperparameter combination
+            res: xgb.callback.TrainingCallback.EvalsLog = {}
 
-                if params['eval_metric'] == 'rmsle':
-                    epochs = len(res['train']['rmsle'])
-                    x_axis = range(0, epochs)
-                    plt.figure(figsize=(10, 5))
-                    plt.plot(x_axis, res['train']['rmsle'], label='Train')
-                    plt.plot(x_axis, res['valid']['rmsle'], label='Validation')
-                    plt.legend()
-                    plt.xlabel('Boosting Rounds')
-                    plt.ylabel('RMSLE')
-                    plt.title('XGBoost RMSLE over Boosting Rounds')
-                    plt.show()
-                elif params['eval_metric'] == 'rmse':
-                    epochs = len(res['train']['rmse'])
-                    x_axis = range(0, epochs)
-                    plt.figure(figsize=(10, 5))
-                    plt.plot(x_axis, res['train']['rmse'], label='Train')
-                    plt.plot(x_axis, res['valid']['rmse'], label='Validation')
-                    plt.legend()
-                    plt.xlabel('Boosting Rounds')
-                    plt.ylabel('RMSE')
-                    plt.title('XGBoost RMSE over Boosting Rounds')
-                    plt.show()
+            print('Re-running the best trial... params = {}'.format(params))
+            if use_skl_api:
+                bst = xgb.XGBRegressor(**params)
+                bst.fit(
+                    train_x, train_y, eval_set=[(valid_x, valid_y)], verbose=True
+                )
 
-            # XGB search
             else:
-                params = {
-                    'n_estimators': randint(2000, 8000),
-                    'max_depth': randint(2, 5),
-                    'max_leaves': randint(2, 30),
-                    'learning_rate': uniform(loc=0.001, scale=0.3),
-                    'subsample': uniform(loc=0.5, scale=0.1),
-                    # 'colsample_bytree': uniform(loc=0.5, scale=0.1),
-                    # 'colsample_bynode ': uniform(loc=0.5, scale=0.5),
-                    'grow_policy': ['lossguide', 'depthwise'],
-                    # 'min_child_weight ': uniform(loc=0.0, scale=1.0), ??????????????????????
-                    'gamma': uniform(loc=0.4, scale=.2),
-                    'reg_lambda': uniform(loc=1e-2, scale=1.0),
-                }
-                regressor = xgb.XGBRegressor(tree_method="hist",
-                                             booster="gbtree",
-                                             objective="reg:squarederror",
-                                             eval_metric="rmse",
-                                             importance_type="weight",
-                                             max_bin=256,
+                bst = xgb.train(
+                    params,
+                    dtrain,
+                    # num_boost_round=10000,
+                    evals=[(dtrain, 'train'), (dvalid, 'valid')],
+                    evals_result=res,
+                    early_stopping_rounds=100,
+                    verbose_eval=True,
+                    # custom_metric=np_rmsle,
+                    callbacks=[eval_callback]
+                )
 
-                                             colsample_bytree=0.5,
-                                             scale_pos_weight=1,
-                                             reg_alpha=0.007,
+            bst.save_model('HousePrices/saved_models/best_xgb_model.json')
 
-                                             device="cuda",
-                                             random_state=SEED,
+            optuna.visualization.plot_param_importances(study)
+            optuna.visualization.plot_parallel_coordinate(study, params=['lambda', 'alpha'])
+            # optuna.visualization.plot_intermediate_values(study)
+            optuna.visualization.plot_contour(study, params=['lambda', 'alpha'])
+            optuna.visualization.plot_contour(study, params=['learning_rate', 'alpha'])
 
-                                             n_jobs=1,
-                                             verbosity=2)
+            if params['eval_metric'] == 'rmsle':
+                epochs = len(res['train']['rmsle'])
+                x_axis = range(0, epochs)
+                plt.figure(figsize=(10, 5))
+                plt.plot(x_axis, res['train']['rmsle'], label='Train')
+                plt.plot(x_axis, res['valid']['rmsle'], label='Validation')
+                plt.legend()
+                plt.xlabel('Boosting Rounds')
+                plt.ylabel('RMSLE')
+                plt.title('XGBoost RMSLE over Boosting Rounds')
+                plt.show()
+            elif params['eval_metric'] == 'rmse':
+                epochs = len(res['train']['rmse'])
+                x_axis = range(0, epochs)
+                plt.figure(figsize=(10, 5))
+                plt.plot(x_axis, res['train']['rmse'], label='Train')
+                plt.plot(x_axis, res['valid']['rmse'], label='Validation')
+                plt.legend()
+                plt.xlabel('Boosting Rounds')
+                plt.ylabel('RMSE')
+                plt.title('XGBoost RMSE over Boosting Rounds')
+                plt.show()
 
-                search = RandomizedSearchCV(regressor, params,
-                                            n_iter=300,
-                                            cv=5,
-                                            scoring='neg_root_mean_squared_error',
-                                            n_jobs=-1,
-                                            return_train_score=True,
-                                            verbose=5)
-
-                # xy = xgb.QuantileDMatrix(train_x_gpu, y_train_y_gpu)
-
-                train_x = cp.asarray(np.concatenate((train_x.to_numpy(), valid_x.to_numpy()), axis=0))
-                train_y = cp.asarray(np.concatenate((train_y.to_numpy(), valid_y.to_numpy()), axis=0))
-
-                bst = search.fit(X=train_x.get(),
-                                 y=train_y.get())
-
-                # {'learning_rate': 0.01, 'max_depth': 5, 'n_estimators': 2000, 'subsample': 0.5}
-                print("Best set of hyperparameters: ", search.best_params_)
-                print("Best score: ", search.best_score_)
-
-                cv_results = search.cv_results_
-                sorted_res = np.argsort(cv_results['mean_test_score'])
-
-                for mean_score, params in zip(cv_results["mean_test_score"], cv_results["params"]):
-                    print(-mean_score, params)
-                print(sorted_res)
-
-        # Train with best hyperparameters
+        # XGB search
         else:
-            {'colsample_bytree': 0.5, 'gamma': 0.4, 'learning_rate': 0.024,  # poss lower
-             'max_depth': 3, 'max_leaves': 25,  # 5
-             'n_estimators': 2500, 'reg_alpha': 0.00657,
-             'reg_lambda': 0.7, 'subsample': 0.5}
+            params = {
+                'n_estimators': randint(2000, 8000),
+                'max_depth': randint(2, 5),
+                'max_leaves': randint(2, 30),
+                'learning_rate': uniform(loc=0.001, scale=0.3),
+                'subsample': uniform(loc=0.5, scale=0.1),
+                # 'colsample_bytree': uniform(loc=0.5, scale=0.1),
+                # 'colsample_bynode ': uniform(loc=0.5, scale=0.5),
+                'grow_policy': ['lossguide', 'depthwise'],
+                # 'min_child_weight ': uniform(loc=0.0, scale=1.0), ??????????????????????
+                'gamma': uniform(loc=0.4, scale=.2),
+                'reg_lambda': uniform(loc=1e-2, scale=1.0),
+            }
+            regressor = xgb.XGBRegressor(
+                tree_method="hist",
+                booster="gbtree",
+                objective="reg:squarederror",
+                eval_metric="rmse",
+                importance_type="weight",
+                max_bin=256,
+                colsample_bytree=0.5,
+                scale_pos_weight=1,
+                reg_alpha=0.007,
+                device="cuda",
+                random_state=seed,
+                n_jobs=1,
+                verbosity=2
+            )
 
-            params = {'gamma': 0.44518296766885146, 'grow_policy': 'lossguide', 'learning_rate': 0.0036219025650929817,
-                      'max_depth': 4, 'max_leaves': 12, 'n_estimators': 7562, 'reg_alpha': 0.007,
-                      'reg_lambda': 0.12335978311448657, 'subsample': 0.6}
+            search = RandomizedSearchCV(
+                regressor,
+                params,
+                n_iter=300,
+                cv=5,
+                scoring='neg_root_mean_squared_error',
+                n_jobs=-1,
+                return_train_score=True,
+                verbose=5
+            )
 
-            regressor = xgb.XGBRegressor(**params,
-                                         )
+            # xy = xgb.QuantileDMatrix(train_x_gpu, y_train_y_gpu)
+            train_x = cp.asarray(np.concatenate((train_x.to_numpy(), valid_x.to_numpy()), axis=0))
+            train_y = cp.asarray(np.concatenate((train_y.to_numpy(), valid_y.to_numpy()), axis=0))
 
-            bst = regressor.fit(train_x, train_y,
-                                eval_set=[(train_x, train_y), (valid_x, valid_y)],
-                                verbose=True,
-                                )
+            bst = search.fit(X=train_x.get(), y=train_y.get())
 
-            print("XGBoost Regressor Results: -------------------")
-            calculate_metrics(bst, train_ds_pd, valid_ds_pd, predict_on_full_set=False, print_predictions=True)
+            # {'learning_rate': 0.01, 'max_depth': 5, 'n_estimators': 2000, 'subsample': 0.5}
+            print("Best set of hyperparameters: ", search.best_params_)
+            print("Best score: ", search.best_score_)
 
-        # Training history
-        if visualize:
-            epochs = len(bst.evals_result()['validation_0']['rmse'])
-            x_axis = range(0, epochs)
-            plt.figure(figsize=(10, 5))
-            plt.plot(x_axis, bst.evals_result()['validation_0']['rmse'], label='Train')
-            plt.plot(x_axis, bst.evals_result()['validation_1']['rmse'], label='Validation')
-            plt.legend()
-            plt.xlabel('Boosting Rounds')
-            plt.ylabel('RMSE')
-            plt.title('XGBoost RMSE over Boosting Rounds')
-            plt.show()
+            cv_results = search.cv_results_
+            sorted_res = np.argsort(cv_results['mean_test_score'])
+
+            for mean_score, params in zip(cv_results["mean_test_score"], cv_results["params"]):
+                print(-mean_score, params)
+            print(sorted_res)
+
+    # Train with best hyperparameters
+    else:
+        old_params = {
+            'colsample_bytree': 0.5, 'gamma': 0.4, 'learning_rate': 0.024,  # poss lower
+            'max_depth': 3, 'max_leaves': 25,  # 5
+            'n_estimators': 2500, 'reg_alpha': 0.00657,
+            'reg_lambda': 0.7, 'subsample': 0.5
+        }
+        params = {
+            'gamma': 0.44518296766885146, 'grow_policy': 'lossguide', 'learning_rate': 0.0036219025650929817,
+            'max_depth': 4, 'max_leaves': 12, 'n_estimators': 7562, 'reg_alpha': 0.007,
+            'reg_lambda': 0.12335978311448657, 'subsample': 0.6
+        }
+
+        regressor = xgb.XGBRegressor(**params)
+
+        bst = regressor.fit(
+            train_x, train_y, eval_set=[(train_x, train_y), (valid_x, valid_y)], verbose=True
+        )
+
+        print("XGBoost Regressor Results: -------------------")
+        calculate_metrics(bst, train_ds_pd, valid_ds_pd, predict_on_full_set=False, print_predictions=True)
+
+    # Training history
+    if visualize:
+        epochs = len(bst.evals_result()['validation_0']['rmse'])
+        x_axis = range(0, epochs)
+        plt.figure(figsize=(10, 5))
+        plt.plot(x_axis, bst.evals_result()['validation_0']['rmse'], label='Train')
+        plt.plot(x_axis, bst.evals_result()['validation_1']['rmse'], label='Validation')
+        plt.legend()
+        plt.xlabel('Boosting Rounds')
+        plt.ylabel('RMSE')
+        plt.title('XGBoost RMSE over Boosting Rounds')
+        plt.show()
 
 
 def tf_neural_network(train_ds_pd, valid_ds_pd, test, ids, exp_name, submit=False):
@@ -941,7 +987,6 @@ def tf_neural_network(train_ds_pd, valid_ds_pd, test, ids, exp_name, submit=Fals
     # Hyperparameters
     batch_size = 128
     activation_func = 'gelu'
-
     # activation_func = 'relu'
     # activation_func = 'mish'
 
@@ -962,25 +1007,23 @@ def tf_neural_network(train_ds_pd, valid_ds_pd, test, ids, exp_name, submit=Fals
     x_test = valid_ds_pd.drop('SalePrice', axis=1).values
     y_test = valid_ds_pd['SalePrice'].values
 
-    train_dataset = tf.data.Dataset.from_tensor_slices((tf.convert_to_tensor(x_train, dtype=tf.float32),
-                                                        tf.convert_to_tensor(y_train, dtype=tf.float32)))
-    val_dataset = tf.data.Dataset.from_tensor_slices((tf.convert_to_tensor(x_test, dtype=tf.float32),
-                                                      tf.convert_to_tensor(y_test, dtype=tf.float32)))
+    train_dataset = tf.data.Dataset.from_tensor_slices(
+        (tf.convert_to_tensor(x_train, dtype=tf.float32), tf.convert_to_tensor(y_train, dtype=tf.float32))
+    )
+    val_dataset = tf.data.Dataset.from_tensor_slices(
+        (tf.convert_to_tensor(x_test, dtype=tf.float32), tf.convert_to_tensor(y_test, dtype=tf.float32))
+    )
 
     train_loader = train_dataset.shuffle(buffer_size=len(x_train)).batch(batch_size, drop_remainder=True)
     val_loader = val_dataset.shuffle(buffer_size=len(val_dataset)).batch(batch_size, drop_remainder=True)
 
+    # Best Found Neural Network Architecture
     class Net(tf.keras.Model):
+
         def __init__(self):
             super(Net, self).__init__()
 
             self.input_layer = tf.keras.layers.Dense(234, activation=activation_func)
-
-            # self.feature_extractor = []
-            # for i in range(5):
-            #     self.hidden_layers.append(tf.keras.layers.Dense(2048, activation=activation_func))
-            #     self.hidden_layers.append(tf.keras.layers.Dropout(0.2))
-
             self.hidden_layers = []
             for i in range(7):
                 self.hidden_layers.append(tf.keras.layers.Dense(1024, activation=activation_func))
@@ -1009,7 +1052,6 @@ def tf_neural_network(train_ds_pd, valid_ds_pd, test, ids, exp_name, submit=Fals
 
     train_losses = []
     val_losses = []
-    val_accuracies = []
 
     for epoch in range(num_epochs):
         print(f"Epoch {epoch + 1}/{num_epochs}")
@@ -1086,15 +1128,17 @@ def tf_neural_network(train_ds_pd, valid_ds_pd, test, ids, exp_name, submit=Fals
     print(model.get_config())
     print(optimizer.get_config())
 
-    model.save("HousePrices/saved_models/nn_model_" + exp_name + ".tf",
-               save_format='tf')
+    model.save("HousePrices/saved_models/nn_model_" + exp_name + ".tf", save_format='tf')
 
-    exp_logger.save({"Id": exp_name, "Model": "TF Neural Network",
-                     "Train_R2": train_r2, "Validation_R2": test_r2, "RMSE": test_rmse,
-                     "Hyperparameters": f"Epochs: {num_epochs}, "
-                                        f"Batch Size: {batch_size}, "
-                                        f"Activation Function: {activation_func}, "
-                                        f"Optimizer: Adam, Learning Rate: {learning_rate}, Loss: MSE, "
-                                        f"Dropout: 0.2"})
+    exp_logger.save(
+        {"Id": exp_name, "Model": "TF Neural Network",
+         "Train_R2": train_r2, "Validation_R2": test_r2, "RMSE": test_rmse,
+         "Hyperparameters": f"Epochs: {num_epochs}, "
+         f"Batch Size: {batch_size}, "
+         f"Activation Function: {activation_func}, "
+         f"Optimizer: Adam, Learning Rate: {learning_rate}, Loss: MSE, "
+         f"Dropout: 0.2"
+         }
+    )
 
-    make_submission(model, test, ids, exp_name)
+    make_submission(model, test, exp_name)

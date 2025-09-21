@@ -1,48 +1,50 @@
-import time
 from datetime import datetime
-import warnings
+from typing import Tuple
 
+# import ydf
+# import tfdf
 import numpy as np
 import pandas as pd
+import tensorflow as tf
 
 import seaborn as sns
 import matplotlib.pyplot as plt
 from pandas.core.dtypes.common import is_numeric_dtype
 
 from scipy.stats import stats
-from sklearn.compose import make_column_transformer
-# import category_encoders as ce
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder, StandardScaler
-from sklearn.impute import SimpleImputer
 
 from sklearn.ensemble import IsolationForest
 from sklearn.cluster import DBSCAN
 
-import tensorflow as tf
-import ydf
-
-from ExperimentLogger import ExperimentLogger
-
+from experiment_logger import ExperimentLogger
+from tools import set_env_variables, split_dataset
 from HousePrices.ensemble_models import ensemble_model
-from HousePrices.models import yggdrassil_random_forest, tf_neural_network, sklearn_random_forest, gradient_booster, \
-    ridge_regression
+from HousePrices.models import (
+    yggdrassil_random_forest,
+    tf_neural_network,
+    sklearn_random_forest,
+    ridge_regression,
+    tf_decision_forests, skl_gradient_booster, run_xgboost
+)
 
-# from HousePrices.models import tf_decision_forests
 
-
-def encode_data(data):
+def encode_data(data) -> pd.DataFrame:
     """Label and one-hot encode predefined categorical data."""
     # Label encoding
+
     # LotShape, LandContour, Utilities, LotConfig, LandSlope, ExterQual, ExterCond, BsmtQual,
     # BsmtCond, BsmtExposure, BsmtFinType1, BsmtFinType2, HeatingQC, KitchenQual, Functional,
     # FireplaceQu, GarageFinish, GarageQual, GarageCond, PavedDrive, PoolQC, Fence
 
     label_encoder = LabelEncoder()
-    lab_enc_cols = ['LotShape', 'LandContour', 'Utilities', 'LotConfig', 'LandSlope',
-                    'ExterQual', 'ExterCond', 'BsmtQual', 'BsmtCond', 'BsmtExposure',
-                    'BsmtFinType1', 'BsmtFinType2', 'HeatingQC', 'KitchenQual', 'Functional',
-                    'FireplaceQu', 'GarageFinish', 'GarageQual', 'GarageCond', 'PavedDrive',
-                    'PoolQC', 'Fence']
+    lab_enc_cols = [
+        'LotShape', 'LandContour', 'Utilities', 'LotConfig', 'LandSlope',
+        'ExterQual', 'ExterCond', 'BsmtQual', 'BsmtCond', 'BsmtExposure',
+        'BsmtFinType1', 'BsmtFinType2', 'HeatingQC', 'KitchenQual', 'Functional',
+        'FireplaceQu', 'GarageFinish', 'GarageQual', 'GarageCond', 'PavedDrive',
+        'PoolQC', 'Fence'
+    ]
 
     for col in lab_enc_cols:
         data[col] = label_encoder.fit_transform(data[col])
@@ -52,43 +54,41 @@ def encode_data(data):
     # RoofStyle, RoofMatl, Exterior1st, Exterior2nd, MasVnrType, Foundation, Heating, CentralAir,
     # Electrical, GarageType, MiscFeature, SaleType, SaleCondition
 
-    #
-    one_hot_cols = ['MSSubClass', 'MSZoning', 'Street', 'Alley', 'Neighborhood', 'Condition1',
-                    'Condition2', 'BldgType', 'HouseStyle', 'RoofStyle', 'RoofMatl',
-                    'Exterior1st', 'Exterior2nd', 'MasVnrType', 'Foundation', 'Heating',
-                    'CentralAir', 'Electrical', 'GarageType', 'MiscFeature', 'SaleType',
-                    'SaleCondition'
-                    ]
+    one_hot_cols = [
+        'MSSubClass', 'MSZoning', 'Street', 'Alley', 'Neighborhood', 'Condition1',
+        'Condition2', 'BldgType', 'HouseStyle', 'RoofStyle', 'RoofMatl',
+        'Exterior1st', 'Exterior2nd', 'MasVnrType', 'Foundation', 'Heating',
+        'CentralAir', 'Electrical', 'GarageType', 'MiscFeature', 'SaleType',
+        'SaleCondition'
+    ]
 
     encoder = OneHotEncoder(sparse_output=False)
     one_hot_enc = encoder.fit_transform(data[one_hot_cols])
+
     one_hot_df = pd.DataFrame(one_hot_enc, columns=encoder.get_feature_names_out(one_hot_cols))
-
     df_encoded = pd.concat([data, one_hot_df], axis=1)
-
     df_encoded = df_encoded.drop(one_hot_cols, axis=1)
 
     # df_encoded = df_encoded.drop('MSZoning', axis=1)
 
-    # Binary encoding for a large number of unique categories
+    # Binary encoding for a large number of unique categories - unused
     # encoder = ce.BinaryEncoder(cols=['Country'])
     # data = encoder.fit_transform(data)
 
     return df_encoded
 
 
-def handle_missing(features, visualize=False):
-    """
-    Handles missing values with different methods for each feature type.
+def handle_missing(features, visualize=False) -> pd.DataFrame:
+    """Handle missing values with different methods for each feature type.
 
+    Based on:
     https://www.kaggle.com/code/lavanyashukla01/how-i-made-top-0-3-on-a-kaggle-competition#Feature-Engineering
     """
-
     if visualize:
         missing_val_count_by_column = (features.isnull().sum())
         print(missing_val_count_by_column[missing_val_count_by_column > 0])
 
-    # Impute missing values
+    # Impute missing values - unused
     # print("Imputed data: -------------------")
 
     # my_imputer = SimpleImputer()
@@ -107,6 +107,7 @@ def handle_missing(features, visualize=False):
     # print()
 
     features['Functional'] = features['Functional'].fillna('Typ')
+
     # Replace the missing values with mode
     features['Electrical'] = features['Electrical'].fillna("SBrkr")
     features['KitchenQual'] = features['KitchenQual'].fillna("TA")
@@ -146,7 +147,8 @@ def handle_missing(features, visualize=False):
     return features
 
 
-def scale_data(features):
+def scale_data(features) -> pd.DataFrame:
+    """Apply scaling on numeric features."""
     scaler = StandardScaler()
 
     numeric = []
@@ -160,10 +162,13 @@ def scale_data(features):
     return features
 
 
-def preprocess_data(train, test, visualize=False):
-    """
-    Preprocesses the data by handling missing values and encoding categorical data.
-    """
+def preprocess_data(train, test, visualize=False) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Preprocess by
+
+     - handling missing values,
+     - encoding categorical data
+     - and splitting into train and test sets.
+      """
     # Outliers
     train.drop(train[(train['OverallQual'] < 5) & (train['SalePrice'] > 200000)].index, inplace=True)
     train.drop(train[(train['GrLivArea'] > 4500) & (train['SalePrice'] < 300000)].index, inplace=True)
@@ -203,7 +208,7 @@ def preprocess_data(train, test, visualize=False):
 
 
 def outlier_test(data):
-    """https://www.kaggle.com/code/nareshbhat/outlier-the-silent-killer"""
+    """Based on: https://www.kaggle.com/code/nareshbhat/outlier-the-silent-killer - unused"""
 
     def grubbs_test(x):
 
@@ -290,22 +295,23 @@ def outlier_test(data):
     print("Outlier detection: -------------------")
 
 
-def explore_data(data, plot=False, test=False):
-    outlier_test(data)
+def explore_data(data, plot=True, test_data=False):
+    """Optionally, explore data."""
+    # outlier_test(data)
 
     if plot:
-        # plt.figure(figsize=(9, 8))
-        # sns.displot(data['SalePrice'], color='g', bins=100);
-        # plt.show()
+        plt.figure(figsize=(9, 8))
+        sns.displot(data['SalePrice'], color='g', bins=100);
+        plt.show()
 
         # Most important features (according to previous analysis)
         num_cols = ['GrLivArea', 'TotalBsmtSF', 'YearBuilt']
-        num_sec_cols = ['GarageArea', 'BsmtFinSF1', 'LotArea', '2ndFlrSF', 'FullBath', '1stFlrSF'
-                                                                                       'YearRemodAdd']
-
+        num_sec_cols = [
+            'GarageArea', 'BsmtFinSF1', 'LotArea', '2ndFlrSF', 'FullBath', '1stFlrSF', 'YearRemodAdd'
+        ]
         cat_cols = ['OverallQual', 'GarageCars', 'ExterQual', ]
 
-        sns.set()
+        sns.set_theme()
         sns.pairplot(data[num_cols], size=2.5)
         plt.show()
 
@@ -316,7 +322,6 @@ def explore_data(data, plot=False, test=False):
 
         for col in cat_cols:
             col_data = pd.concat([data['SalePrice'], data[col]], axis=1)
-            f, ax = plt.subplots(figsize=(8, 6))
             fig = sns.boxplot(x=col, y="SalePrice", data=col_data)
             fig.axis(ymin=0, ymax=800000);
             plt.show()
@@ -336,9 +341,11 @@ def explore_data(data, plot=False, test=False):
         k = 10
         cols = corrmat.nlargest(k, 'SalePrice')['SalePrice'].index
         cm = np.corrcoef(data[cols].values.T)
-        sns.set(font_scale=1)
-        hm = sns.heatmap(cm, cbar=True, annot=True, square=True, fmt='.2f', annot_kws={'size': 10},
-                         yticklabels=cols.values, xticklabels=cols.values)
+        sns.set_theme(font_scale=1)
+        sns.heatmap(
+            cm, cbar=True, annot=True, square=True, fmt='.2f', annot_kws={'size': 10},
+            yticklabels=cols.values, xticklabels=cols.values
+        )
         plt.show()
 
         # Missing data
@@ -371,38 +378,23 @@ def explore_data(data, plot=False, test=False):
     object_cols = data.select_dtypes(include=['object'])
     print("Still Object typed columns:", object_cols)
 
-    if not test:
+    if not test_data:
         print("Skewness: %f" % data['SalePrice'].skew())
         print("Kurtosis: %f" % data['SalePrice'].kurt())
 
 
-def split_dataset(dataset, test_ratio=0.1):
-    test_indices = np.random.rand(len(dataset)) < test_ratio
-    return dataset[~test_indices], dataset[test_indices]
 
-
-def set_env_variables(SEED):
-    warnings.filterwarnings(action="ignore")
-
-    pd.options.display.max_seq_items = 8000
-    pd.options.display.max_rows = 8000
-
-    np.random.seed(SEED)
-    tf.random.set_seed(SEED)
-
-    if not tf.executing_eagerly():
-        tf.compat.v1.reset_default_graph()
 
 
 class HousePricesRegressionEnv:
+    """Control regression pipeline for regression."""
 
-    def __init__(self, SEED, visualize=False):
-
-        set_env_variables(SEED)
+    def __init__(self, seed, visualize=False):
+        """Initialize environment."""
+        set_env_variables(seed)
 
         print("TensorFlow v" + tf.__version__)
         # print("TensorFlow Decision Forests v" + tfdf.__version__)
-
         print("Num GPUs Available: ", len(tf.config.experimental.list_physical_devices('GPU')))
 
         now = datetime.now().strftime("%m.%d.%Y_%H.%M.%S")
@@ -412,7 +404,6 @@ class HousePricesRegressionEnv:
         self.train_set, self.valid_set, self.test_set, self.ids = self.construct_datasets(visualize_data=visualize)
 
     def construct_datasets(self, visualize_data=False):
-
         # Load the data #############################################
         data = pd.read_csv('HousePrices/data/train.csv')
         data = data.drop('Id', axis=1)
@@ -425,7 +416,7 @@ class HousePricesRegressionEnv:
         if visualize_data:
             print("Data exploration before preprocessing: -------------------")
             explore_data(data, plot=True)
-            explore_data(test, plot=False, test=True)
+            explore_data(test, plot=False, test_data=True)
 
             sns.heatmap(data.isnull(), cmap='viridis')
             plt.show()
@@ -461,34 +452,53 @@ class HousePricesRegressionEnv:
             len(train_ds_pd), len(valid_ds_pd))
         )
 
-        if visualize_data:
-            vds = ydf.create_vertical_dataset(data, include_all_columns=True)
-            print(vds.memory_usage())
+        # if visualize_data:
+        #     vds = ydf.create_vertical_dataset(data, include_all_columns=True)
+        #     print(vds.memory_usage())
 
         return train_ds_pd, valid_ds_pd, test, ids
 
-    def run_regression(self, algorithm, SEED, submit=False, tune=False):
-
-        if algorithm == 'tfdf':
-            tf_decision_forests(self.train_set, self.valid_set, self.test_set,
-                                self.ids, self.exp_name, SEED)
-        elif algorithm == 'sklearn_rf':
-            sklearn_random_forest(self.train_set, self.valid_set, self.test_set,
-                                  self.ids, self.exp_name, SEED, tune=tune)
-        elif algorithm == 'yggdf':
-            yggdrassil_random_forest(self.train_set, self.valid_set, self.test_set,
-                                     self.ids, self.exp_name, SEED, submit, tune=tune)
-        elif algorithm == 'grb':
-            gradient_booster(self.train_set, self.valid_set, self.test_set,
-                             self.ids, self.exp_name, SEED, submit, tune=tune)
-        elif algorithm == 'ensemble':
-            ensemble_model(self.train_set, self.valid_set, self.test_set,
-                           self.ids, self.exp_name, SEED=SEED, submit=submit, from_scratch=True)
-        elif algorithm == 'NN':
-            tf_neural_network(self.train_set, self.valid_set, self.test_set,
-                              self.ids, self.exp_name, SEED)
-        elif algorithm == 'ridge':
-            ridge_regression(self.train_set, self.valid_set, self.test_set,
-                             self.ids, self.exp_name, SEED)
-        else:
-            print("Invalid algorithm.")
+    def run_experiment(self, algorithm, seed, submit=False, tune=False):
+        """Run HousePrice regression with selected algorithm."""
+        match algorithm:
+            case 'tfdf':
+                tf_decision_forests(
+                    self.train_set, self.valid_set, self.test_set, self.ids, self.exp_name, seed
+                )
+            case 'sklearn_rf':
+                sklearn_random_forest(
+                    self.train_set, self.valid_set, self.test_set, seed, tune=tune
+                )
+            case 'yggdf':
+                yggdrassil_random_forest(
+                    self.train_set, self.valid_set, self.test_set, self.exp_name, seed, submit, tune=tune
+                )
+            case 'skl_grb':
+                skl_gradient_booster(
+                    self.train_set, self.valid_set, self.test_set, self.exp_name, seed, tune=tune
+                )
+            case 'xgb':
+                run_xgboost(
+                    self.train_set, self.valid_set, self.test_set, self.exp_name, seed, tune=tune
+                )
+            case 'ensemble':
+                ensemble_model(
+                    self.train_set,
+                    self.valid_set,
+                    self.test_set,
+                    self.ids,
+                    self.exp_name,
+                    seed=seed,
+                    submit=submit,
+                    from_scratch=True
+                )
+            case 'neural_net':
+                tf_neural_network(
+                    self.train_set, self.valid_set, self.test_set,self.ids, self.exp_name, seed
+                )
+            case 'ridge':
+                ridge_regression(
+                    self.train_set, self.valid_set, self.test_set, seed
+                )
+            case _:
+                print("Invalid algorithm selected.")

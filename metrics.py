@@ -1,4 +1,9 @@
-import argparse
+"""
+Define metric functions.
+
+https://github.com/dmlc/xgboost/blob/master/demo/guide-python/custom_rmsle.py
+"""
+
 from time import time
 from typing import Dict, List, Tuple
 
@@ -12,53 +17,55 @@ import xgboost as xgb
 from sklearn.metrics import mean_squared_error, mean_squared_log_error, r2_score, PredictionErrorDisplay
 from sklearn.model_selection import cross_val_score
 
-"""https://github.com/dmlc/xgboost/blob/master/demo/guide-python/custom_rmsle.py"""
+
+# def native_rmse(
+#         dtrain: xgb.DMatrix,
+#         dtest: xgb.DMatrix
+# ) -> Dict[str, Dict[str, List[float]]]:
+#     """Train using native implementation of Root Mean Squared Loss."""
+#     squared_error = {
+#         'objective': 'reg:squarederror',
+#         'eval_metric': 'rmse',
+#         'tree_method': 'hist',
+#         'seed': kSeed
+#     }
+#     start = time()
+#     results: Dict[str, Dict[str, List[float]]] = {}
+#     xgb.train(
+#         squared_error,
+#         dtrain=dtrain,
+#         num_boost_round=kBoostRound,
+#         evals=[(dtrain, 'dtrain'), (dtest, 'dtest')],
+#         evals_result=results
+#     )
+#     print('Finished Squared Error in:', time() - start, '\n')
+#     return results
 
 
-def native_rmse(dtrain: xgb.DMatrix,
-                dtest: xgb.DMatrix) -> Dict[str, Dict[str, List[float]]]:
-    '''Train using native implementation of Root Mean Squared Loss.'''
-    print('Squared Error')
-    squared_error = {
-        'objective': 'reg:squarederror',
-        'eval_metric': 'rmse',
-        'tree_method': 'hist',
-        'seed': kSeed
-    }
-    start = time()
-    results: Dict[str, Dict[str, List[float]]] = {}
-    xgb.train(squared_error,
-              dtrain=dtrain,
-              num_boost_round=kBoostRound,
-              evals=[(dtrain, 'dtrain'), (dtest, 'dtest')],
-              evals_result=results)
-    print('Finished Squared Error in:', time() - start, '\n')
-    return results
-
-
-def native_rmsle(dtrain: xgb.DMatrix,
-                 dtest: xgb.DMatrix) -> Dict[str, Dict[str, List[float]]]:
-    '''Train using native implementation of Squared Log Error.'''
-    print('Squared Log Error')
-    results: Dict[str, Dict[str, List[float]]] = {}
-    squared_log_error = {
-        'objective': 'reg:squaredlogerror',
-        'eval_metric': 'rmsle',
-        'tree_method': 'hist',
-        'seed': kSeed
-    }
-    start = time()
-    xgb.train(squared_log_error,
-              dtrain=dtrain,
-              num_boost_round=kBoostRound,
-              evals=[(dtrain, 'dtrain'), (dtest, 'dtest')],
-              evals_result=results)
-    print('Finished Squared Log Error in:', time() - start)
-    return results
+# def native_rmsle(
+#         dtrain: xgb.DMatrix,
+#         dtest: xgb.DMatrix
+# ) -> Dict[str, Dict[str, List[float]]]:
+#     """Train using native implementation of Squared Log Error."""
+#     results: Dict[str, Dict[str, List[float]]] = {}
+#     squared_log_error = {
+#         'objective': 'reg:squaredlogerror',
+#         'eval_metric': 'rmsle',
+#         'tree_method': 'hist',
+#         'seed': kSeed
+#     }
+#     start = time()
+#     xgb.train(squared_log_error,
+#               dtrain=dtrain,
+#               num_boost_round=kBoostRound,
+#               evals=[(dtrain, 'dtrain'), (dtest, 'dtest')],
+#               evals_result=results)
+#     print('Finished Squared Log Error in:', time() - start)
+#     return results
 
 
 def py_rmsle(dtrain: xgb.DMatrix, dtest: xgb.DMatrix) -> Dict:
-    '''Train using Python implementation of Squared Log Error.'''
+    """Train using Python implementation of Squared Log Error."""
 
     def gradient(predt: np.ndarray, dtrain: xgb.DMatrix) -> np.ndarray:
         '''Compute the gradient squared log error.'''
@@ -130,10 +137,15 @@ def plot_rmsle_history(rmse_evals, rmsle_evals, py_rmsle_evals):
     plt.show()
 
 
-def calculate_metrics(model, train_ds_pd, valid_ds_pd, label='SalePrice', predict_on_full_set=True,
-                      print_predictions=True):
-    """
-    Model prediction and ground truth comparison.
+def calculate_metrics(
+        model,
+        train_ds_pd,
+        valid_ds_pd,
+        label='SalePrice',
+        predict_on_full_set=True,
+        print_predictions=True
+):
+    """Model prediction and ground truth comparison.
     Calculate R-squared, RMSE, RMSLE for training and validation sets.
     """
     train_predictions = model.predict(train_ds_pd) if predict_on_full_set else (
@@ -152,7 +164,7 @@ def calculate_metrics(model, train_ds_pd, valid_ds_pd, label='SalePrice', predic
     valid_r2 = r2_score(valid_ds_pd[label], valid_predictions)
     print(f'Validation R-squared: {valid_r2 * 100:.2f}%')
 
-    valid_rmse = np.sqrt(mean_squared_error(valid_ds_pd[label], valid_predictions, squared=True))
+    valid_rmse = np.sqrt(mean_squared_error(valid_ds_pd[label], valid_predictions))
     print(f'Validation RMSE: {valid_rmse:.2f}')
     print()
 
@@ -179,23 +191,35 @@ def calculate_metrics(model, train_ds_pd, valid_ds_pd, label='SalePrice', predic
 
 
 def cv_rmse(model, X, targets, kf, params):
-    rmse = np.sqrt(-cross_val_score(model, X, targets,
-                                    scoring="neg_mean_squared_error",
-                                    cv=kf,
-                                    params=params,
-                                    verbose=0,
-                                    error_score='raise',
-                                    n_jobs=-1))
+    """Return cross-validated root mean squared error."""
+    rmse = np.sqrt(
+        -cross_val_score(
+            model,
+            X,
+            targets,
+            scoring="neg_mean_squared_error",
+            cv=kf,
+            params=params,
+            verbose=0,
+            error_score='raise',
+            n_jobs=-1
+        )
+    )
     return rmse
 
 
 def cv_rmsle(model, X, targets, kf):
-    rmsle = -cross_val_score(model, X, targets,
-                             scoring="neg_root_mean_squared_log_error",
-                             cv=kf,
-                             verbose=0,
-                             error_score='raise',
-                             n_jobs=-1)
+    """Return cross-validated root mean squared logarithmic error."""
+    rmsle = -cross_val_score(
+        model,
+        X,
+        targets,
+        scoring="neg_root_mean_squared_log_error",
+        cv=kf,
+        verbose=0,
+        error_score='raise',
+        n_jobs=-1
+    )
     return rmsle
 
 

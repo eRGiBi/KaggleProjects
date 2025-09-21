@@ -3,197 +3,214 @@ import pickle
 import numpy as np
 import pandas as pd
 
-from matplotlib import pyplot as plt
 import seaborn as sns
+from matplotlib import pyplot as plt
 
 from scipy.optimize import minimize
-from sklearn.compose import TransformedTargetRegressor
-from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor, HistGradientBoostingRegressor
 from sklearn.metrics import mean_squared_error, r2_score, mean_squared_log_error, make_scorer
 from sklearn.model_selection import cross_val_score, KFold
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import RobustScaler, MinMaxScaler, QuantileTransformer
 
-from sklearn.kernel_ridge import KernelRidge
-from sklearn.linear_model import Ridge, RidgeCV
-from sklearn.linear_model import ElasticNet, ElasticNetCV
-from sklearn.svm import SVR
-from mlxtend.regressor import StackingCVRegressor
-import ydf
-import lightgbm as lgb
+# import ydf
 import xgboost as xgb
+import lightgbm as lgb
 from lightgbm import LGBMRegressor
-from xgboost import XGBRegressor
+from mlxtend.regressor import StackingCVRegressor
 
-import tensorflow as tf
+from sklearn.svm import SVR
+from sklearn.kernel_ridge import KernelRidge
+from sklearn.compose import TransformedTargetRegressor
+from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor, HistGradientBoostingRegressor
+from sklearn.linear_model import Ridge, RidgeCV, ElasticNet, ElasticNetCV
 
 from metrics import rmse, cv_rmse, np_rmsle
 
 
-def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, from_scratch=True, SEED=476, submit=False):
-    """
-        Ensemble model using StackingCVRegressor from mlxtend library.
-    """
+def ensemble_model(
+        train_ds_pd,
+        valid_ds_pd,
+        test,
+        ids,
+        exp_name,
+        from_scratch=True,
+        seed=476,
+        submit=False
+):
+    """Construct and run ensemble model using StackingCVRegressor from mlxtend."""
     train_targets = np.array(train_ds_pd['SalePrice'])
     train_x = np.array(train_ds_pd.drop(['SalePrice'], axis=1))
 
     valid_targets = np.array(valid_ds_pd['SalePrice'])
     valid_x = np.array(valid_ds_pd.drop(['SalePrice'], axis=1))
 
-    kf = KFold(n_splits=12, random_state=SEED, shuffle=True)
+    kf = KFold(n_splits=12, random_state=seed, shuffle=True)
 
-    rmsle_scorer = make_scorer(lambda y_true, y_pred: np.sqrt(mean_squared_log_error(y_true + 1, y_pred + 1)),
-                               greater_is_better=False)
-    rmse_scorer = make_scorer(lambda y_true, y_pred: np.sqrt(mean_squared_error(y_true, y_pred)))
+    rmsle_scorer = make_scorer(
+        lambda y_true, y_pred: np.sqrt(
+            mean_squared_log_error(y_true + 1, y_pred + 1)
+        ),
+        greater_is_better=False
+    )
+    rmse_scorer = make_scorer(
+        lambda y_true, y_pred: np.sqrt(mean_squared_error(y_true, y_pred))
+    )
 
     # Model declarations
 
-    lightgbm = LGBMRegressor(objective='regression',
-                             num_leaves=25,
-                             max_depth=5,
-                             learning_rate=0.05,
-                             n_estimators=4000,
-                             max_bin=250,
-                             bagging_fraction=0.5,
-                             subsample=0.5,
-                             subsample_freq=1,
-                             bagging_freq=4,
-                             bagging_seed=SEED + 1,
-                             feature_fraction=0.6,
-                             feature_fraction_seed=SEED + 2,
-                             colsample_bytree=0.5,
-                             # min_sum_hessian_in_leaf=11,
-                             reg_alpha=0.3,
-                             reg_lambda=0.015,
+    lightgbm = LGBMRegressor(
+        objective='regression',
+        num_leaves=25,
+        max_depth=5,
+        learning_rate=0.05,
+        n_estimators=4000,
+        max_bin=250,
+        bagging_fraction=0.5,
+        subsample=0.5,
+        subsample_freq=1,
+        bagging_freq=4,
+        bagging_seed=seed + 1,
+        feature_fraction=0.6,
+        feature_fraction_seed=seed + 2,
+        colsample_bytree=0.5,
+        # min_sum_hessian_in_leaf=11,
+        reg_alpha=0.3,
+        reg_lambda=0.015,
+        device_type='cpu',
+        n_jobs=-1,
+        verbose=-1,
+        random_state=seed
+    )
 
-                             device_type='cpu',
-                             n_jobs=-1,
-                             verbose=-1,
-                             random_state=SEED)
-
-    xgb_params = {"tree_method": "hist",
-                  "objective": "reg:squarederror",
-                  "eval_metric": "rmse",
-                  "importance_type": "weight",
-                  "scale_pos_weight": 1,
-                  'device': "cpu",
-                  "random_state": SEED,
-                  "verbosity": 0,
-                  'colsample_bytree': 0.5,
-                  'gamma': 0.4,
-                  'learning_rate': 0.024,  # poss lower
-                  'max_depth': 3,
-                  'max_leaves': 25,  # 5
-                  'n_estimators': 2500,
-                  'reg_alpha': 0.00657,
-                  'reg_lambda': 0.7,
-                  'subsample': 0.5,
-                  }
+    xgb_params = {
+        "tree_method": "hist",
+        "objective": "reg:squarederror",
+        "eval_metric": "rmse",
+        "importance_type": "weight",
+        "scale_pos_weight": 1,
+        'device': "cpu",
+        "random_state": seed,
+        "verbosity": 0,
+        'colsample_bytree': 0.5,
+        'gamma': 0.4,
+        'learning_rate': 0.024,  # poss lower
+        'max_depth': 3,
+        'max_leaves': 25,  # 5
+        'n_estimators': 2500,
+        'reg_alpha': 0.00657,
+        'reg_lambda': 0.7,
+        'subsample': 0.5,
+    }
     xgboost = xgb.XGBRegressor(**xgb_params)
+
+    # Ridge experiments
 
     # ridge_alphas = np.array([
     #     0.1, 0.5, 1, 2, 5, 10, 15, 18, 20, 22,
     #     500, 1000, 2000, 3000,
     # ], dtype=np.float64)
-    #
+
     # ridge = make_pipeline(
-    #     RobustScaler(with_centering=False,
-    #                  with_scaling=True,
-    #                  quantile_range=(25.0, 75.0)),
+    #     RobustScaler(
+    #         with_centering=False,
+    #         with_scaling=True,
+    #         quantile_range=(25.0, 75.0)
+    #     ),
     #     MinMaxScaler(feature_range=(0, 1)),
-    #
-    #     RidgeCV(alphas=ridge_alphas,
-    #             cv=kf,
-    #             scoring="neg_root_mean_squared_error",
-    #             fit_intercept=False,
-    #             gcv_mode='auto',
-    #             store_cv_results=False,
-    #             alpha_per_target=False,
-    #             ),
-    #     verbose=False)
+    #     RidgeCV(
+    #         alphas=ridge_alphas,
+    #         cv=kf,
+    #         scoring="neg_root_mean_squared_error",
+    #         fit_intercept=False,
+    #         gcv_mode='auto',
+    #         store_cv_results=False,
+    #         alpha_per_target=False,
+    #     ),
+    #     verbose=False
+    # )
 
-    ridge_alphas = np.array([
-
-        1e-2, 3e-2, 5e-2, 7e-2, 9e-2,
-        0.1, 0.3, 0.5, 0.7,
-        1, 3, 5, 7, 10, 15,
-        20, 22, 25, 30, 50, 60, 67, 75, 90, 100,
-        500, 1000, 2000,
-    ], dtype=np.float64)
-
-    ridge_regressor = RidgeCV(alphas=ridge_alphas,
-                              cv=None,
-                              scoring="neg_root_mean_squared_error",
-                              fit_intercept=False,
-                              gcv_mode='auto',
-                              store_cv_results=True,
-                              alpha_per_target=False,
-                              )
-
+    ridge_alphas = np.array(
+        [
+            1e-2, 3e-2, 5e-2, 7e-2, 9e-2,
+            0.1, 0.3, 0.5, 0.7,
+            1, 3, 5, 7, 10, 15,
+            20, 22, 25, 30, 50, 60, 67, 75, 90, 100,
+            500, 1000, 2000,
+        ],
+        dtype=np.float64
+    )
+    ridge_regressor = RidgeCV(
+        alphas=ridge_alphas,
+        cv=None,
+        scoring="neg_root_mean_squared_error",
+        fit_intercept=False,
+        gcv_mode='auto',
+        # store_cv_results=True,
+        alpha_per_target=False
+    )
     transformed_ridge = TransformedTargetRegressor(
         ridge_regressor,
-        transformer=QuantileTransformer(output_distribution='normal',
-                                        ignore_implicit_zeros=False,
-                                        random_state=SEED)
+        transformer=QuantileTransformer(
+            output_distribution='normal',
+            ignore_implicit_zeros=False,
+            random_state=seed
+        )
     )
 
     ridge = make_pipeline(
-        RobustScaler(with_centering=False,
-                     with_scaling=True,
-                     quantile_range=(5.0, 95.0)),
+        RobustScaler(
+            with_centering=False,
+            with_scaling=True,
+            quantile_range=(5.0, 95.0)
+        ),
         transformed_ridge,
-        verbose=True)
+        verbose=True
+    )
 
     # sklearn Gradient Boosting
-    skl_gbr = GradientBoostingRegressor(n_estimators=3500,
-                                        criterion='friedman_mse',
-                                        learning_rate=0.01,
-                                        subsample=0.5,
-                                        max_depth=4,
-                                        max_features='sqrt',
-                                        min_samples_leaf=4,
-                                        min_samples_split=7,
-                                        loss='huber',
-                                        random_state=SEED,
-                                        verbose=0)
 
-    # skl_rf = RandomForestRegressor(n_estimators=5500,
-    #                                max_depth=12,
-    #                                criterion='squared_error',
-    #                                min_samples_split=2,
-    #                                min_samples_leaf=1,
-    #                                max_features=None,
-    #                                bootstrap=True,
-    #                                max_samples=1.0,
-    #                                oob_score=False,
-    #                                n_jobs=-1,
-    #                                random_state=SEED,
-    #                                verbose=0)
-    skl_rf = RandomForestRegressor(n_estimators=2100,
-                                   max_depth=16,
-                                   criterion='squared_error',
-                                   min_samples_split=2,
-                                   min_samples_leaf=2,
-                                   max_leaf_nodes=None,
-                                   min_impurity_decrease=0,
-                                   max_features=None,
-                                   bootstrap=True,
-                                   max_samples=1.0,
-                                   oob_score=True,
-                                   n_jobs=-1,
-                                   random_state=SEED,
-                                   verbose=0)
+    skl_gbr = GradientBoostingRegressor(
+        n_estimators=3500,
+        criterion='friedman_mse',
+        learning_rate=0.01,
+        subsample=0.5,
+        max_depth=4,
+        max_features='sqrt',
+        min_samples_leaf=4,
+        min_samples_split=7,
+        loss='huber',
+        random_state=seed,
+        verbose=0
+    )
 
-    stack_gen = StackingCVRegressor(regressors=(xgboost, lightgbm,
-                                                ridge, skl_gbr, skl_rf),
-                                    meta_regressor=xgboost,
-                                    cv=5,
-                                    use_features_in_secondary=True,
-                                    refit=True,
-                                    shuffle=True,
-                                    random_state=SEED,
-                                    n_jobs=-1,
-                                    verbose=0)
+    skl_rf = RandomForestRegressor(
+        n_estimators=2100,
+        max_depth=16,
+        criterion='squared_error',
+        min_samples_split=2,
+        min_samples_leaf=2,
+        max_leaf_nodes=None,
+        min_impurity_decrease=0,
+        max_features=None,
+        bootstrap=True,
+        max_samples=1.0,
+        oob_score=True,
+        n_jobs=-1,
+        random_state=seed,
+        verbose=0
+    )
+
+    stack_gen = StackingCVRegressor(
+        regressors=(xgboost, lightgbm, ridge, skl_gbr, skl_rf),
+        meta_regressor=xgboost,
+        cv=5,
+        use_features_in_secondary=True,
+        refit=True,
+        shuffle=True,
+        random_state=seed,
+        n_jobs=-1,
+        verbose=0
+    )
 
     if from_scratch:
         print()
@@ -210,29 +227,33 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, from_scratch=T
         for regressor in [lightgbm, ridge, skl_rf, skl_gbr, stack_gen]:
             name = regressor.__class__.__name__
             print(name)
-            regressor = TransformedTargetRegressor(regressor,
-                                                   transformer=QuantileTransformer(output_distribution='normal',
-                                                                                   ignore_implicit_zeros=False,
-                                                                                   n_quantiles=1000,
-                                                                                   random_state=SEED))
+            regressor = TransformedTargetRegressor(
+                regressor,
+                transformer=QuantileTransformer(
+                    output_distribution='normal',
+                    ignore_implicit_zeros=False,
+                    n_quantiles=1000,
+                    random_state=seed
+                )
+            )
             score = cv_rmse(regressor, train_x, train_targets, kf, params=None)
             scores[name] = (score.mean(), score.std())
 
         print("Model fitting...\n")
 
         print('LightGBM')
-        lgb_model = lightgbm.fit(train_x, train_targets,
-                                 eval_set=[(valid_x, valid_targets)])
+        lgb_model = lightgbm.fit(train_x, train_targets, eval_set=[(valid_x, valid_targets)])
         # calculate_metrics(lgb_model, train_ds_pd, valid_ds_pd)
 
         print('XGBoost')
-        xgb_model = xgboost.fit(train_x, train_targets,
-                                eval_set=[(valid_x, valid_targets)])
+        xgb_model = xgboost.fit(train_x, train_targets, eval_set=[(valid_x, valid_targets)])
         # calculate_metrics(xgb_model, train_ds_pd, valid_ds_pd)
 
         print('Ridge')
-        ridge_model = ridge.fit(X=np.concatenate((train_x, valid_x), axis=0),
-                                y=np.concatenate((train_targets, valid_targets), axis=0))
+        ridge_model = ridge.fit(
+            X=np.concatenate((train_x, valid_x), axis=0),
+            y=np.concatenate((train_targets, valid_targets), axis=0)
+        )
         # calculate_metrics(ridge_model, train_ds_pd, valid_ds_pd)
         # ridgecv_step = ridge.named_steps['ridgecv']
         # print("Best alpha: ", ridgecv_step.alpha_)
@@ -247,8 +268,7 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, from_scratch=T
         # calculate_metrics(gbr_model, train_ds_pd, valid_ds_pd)
 
         print('mlxtend CVStacking')
-        stack_gen_model = stack_gen.fit(np.array(train_x), np.array(train_targets),
-                                        sample_weight=None)
+        stack_gen_model = stack_gen.fit(np.array(train_x), np.array(train_targets), sample_weight=None)
         # calculate_metrics(stack_gen_model, train_ds_pd, valid_ds_pd)
 
     else:
@@ -271,11 +291,7 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, from_scratch=T
 
         print('mlxtend CVStacking')
 
-        # nn_model = tf.keras.models.load_model('HousePrices/saved_models/nn_model_experiment_08.23.2024_23.09.50.keras')
-
-    initial_weights = np.array([0.05, 0.1, 0.3, 0.1, 0.05, 0.35,
-                                # 0.05
-                                ])
+    initial_weights = np.array([0.05, 0.1, 0.3, 0.1, 0.05, 0.35])
 
     def blended_predictions(X, weights):
         return (weights[0] * ridge_model.predict(X) +
@@ -288,7 +304,6 @@ def ensemble_model(train_ds_pd, valid_ds_pd, test, ids, exp_name, from_scratch=T
                 )
 
     def objective(weights, X, y_true):
-
         # np.sqrt(mean_squared_error(y_true, blended_predictions(X, weights)))
 
         return np.sqrt(np.mean(np.square(np.log1p(blended_predictions(X, weights)) - np.log1p(y_true))))
