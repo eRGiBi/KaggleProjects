@@ -47,7 +47,7 @@ qtpy==2.4.3
 s3fs==2025.3.2
 s3transfer==0.11.5
 sagemaker==2.243.2
-scikit_learn==1.6.1
+scikit_learn==1.5.0
 scipy==1.15.2
 scipy_doctest==1.7.1
 setuptools==78.1.1
