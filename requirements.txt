@@ -39,7 +39,7 @@ filelock==3.19.1
     # via torch
 flatbuffers==25.2.10
     # via tensorflow
-fonttools==4.60.0
+fonttools==4.60.2
     # via matplotlib
 fsspec==2025.9.0
     # via torch
