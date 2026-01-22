@@ -272,7 +272,7 @@ urllib3==2.6.3
     # via requests
 werkzeug==3.1.4
     # via tensorboard
-wheel==0.45.1
+wheel==0.46.2
     # via astunparse
 wrapt==1.17.3
     # via tensorflow
