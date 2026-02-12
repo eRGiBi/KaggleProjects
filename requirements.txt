@@ -167,7 +167,7 @@ pillow==11.3.0
     #   matplotlib
     #   tensorboard
     #   torchvision
-protobuf==6.32.1
+protobuf==6.33.5
     # via
     #   tensorboard
     #   tensorflow
