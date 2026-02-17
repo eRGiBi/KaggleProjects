@@ -162,7 +162,7 @@ patsy==1.0.1
     # via
     #   category-encoders
     #   statsmodels
-pillow==11.3.0
+pillow==12.1.1
     # via
     #   matplotlib
     #   tensorboard
