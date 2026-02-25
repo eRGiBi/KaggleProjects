@@ -66,7 +66,7 @@ joblib==1.5.2
     # via
     #   mlxtend
     #   scikit-learn
-keras==3.13.1
+keras==3.13.2
     # via tensorflow
 kiwisolver==1.4.9
     # via matplotlib
