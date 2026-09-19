@@ -209,7 +209,7 @@ scipy==1.15.3
     #   xgboost
 seaborn==0.13.2
     # via kaggleprojects (pyproject.toml)
-setuptools==80.9.0
+setuptools==83.0.0
     # via
     #   tensorboard
     #   tensorflow
