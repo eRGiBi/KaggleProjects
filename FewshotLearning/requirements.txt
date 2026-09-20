@@ -50,7 +50,7 @@ sagemaker==3.8.0
 scikit_learn==1.5.0
 scipy==1.15.2
 scipy_doctest==1.7.1
-setuptools==78.1.1
+setuptools==83.0.0
 SQLAlchemy==2.0.40
 tables==3.10.2
 threadpoolctl==3.6.0
